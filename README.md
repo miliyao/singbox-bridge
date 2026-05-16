@@ -24,8 +24,8 @@
 - `REALITY`
 - `XTLS Vision`
 
-这意味着项目已经明确偏向某一类 Xboard 节点，不追求像 V2bX、XrayR 那样的
-多协议、多后端覆盖能力。
+这意味着项目已经明确偏向某一类 `Xboard` 节点，不追求像 `V2bX`、`XrayR`
+那样的多协议、多后端覆盖能力。
 
 ## 主要功能
 
@@ -54,6 +54,48 @@
 - `CF_ZONE_ID`：启用 Cloudflare 时必填
 - `CF_RECORD_NAME`：启用 Cloudflare 时必填
 
+## Linux 一键部署
+
+推荐直接使用 GitHub 原始脚本一键部署。脚本默认会：
+
+- 自动安装基础依赖
+- 自动安装 Go（系统未安装时）
+- 从 GitHub 拉取仓库源码
+- 本地编译 `phantom-node`
+- 写入 systemd 服务并自动启动
+
+部署命令：
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/miliyao/phantom-node/main/deploy/install.sh) \
+  --node-id=5 \
+  --panel=https://panel.example.com \
+  --token=secret
+```
+
+如果需要启用 Cloudflare DNS：
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/miliyao/phantom-node/main/deploy/install.sh) \
+  --node-id=5 \
+  --panel=https://panel.example.com \
+  --token=secret \
+  --cf-enabled \
+  --cf-token=你的_CF_API_TOKEN \
+  --cf-zone=你的_CF_ZONE_ID \
+  --cf-record=node.example.com
+```
+
+如果你已经有现成的 Linux 二进制，也可以指定下载地址跳过源码编译：
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/miliyao/phantom-node/main/deploy/install.sh) \
+  --node-id=5 \
+  --panel=https://panel.example.com \
+  --token=secret \
+  --download-url=https://example.com/phantom-node
+```
+
 ## 本地开发
 
 运行测试：
@@ -68,29 +110,9 @@ go test ./...
 go build ./...
 ```
 
-## 部署方式
-
-仓库自带 Linux 安装脚本：
-
-```bash
-bash deploy/install.sh \
-  --node-id=5 \
-  --panel=https://panel.example.com \
-  --token=secret
-```
-
-如需启用 Cloudflare DNS，可额外追加：
-
-```bash
---cf-enabled
---cf-token=...
---cf-zone=...
---cf-record=node.example.com
-```
-
 ## 可靠性说明
 
-- 流量上报失败时，不会立刻丢弃，会先缓存在内存中
+- 流量上报失败时，不会立刻丢弃，会先缓存到内存中
 - 下次上报成功时，会把缓存流量和新流量一并提交
 - `sing-box` 热重载失败时，会尽量回滚到旧实例
 - Cloudflare DNS 注册会优先更新已有记录，而不是重复创建
@@ -100,4 +122,4 @@ bash deploy/install.sh \
 - 缓存流量只保存在内存里，进程异常退出时仍可能丢失
 - Stats gRPC 监听地址固定为 `127.0.0.1:10085`
 - 当前实现是轻量单节点架构，不支持多节点复用
-- 目前没有实现像 V2bX、XrayR 那样更完整的协议矩阵和面板生态兼容层
+- 目前没有实现像 `V2bX`、`XrayR` 那样更完整的协议矩阵和面板生态兼容层

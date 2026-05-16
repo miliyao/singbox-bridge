@@ -107,7 +107,7 @@ go test ./...
 本地构建：
 
 ```bash
-go build ./...
+go build -tags with_utls ./...
 ```
 
 本地运行示例：
@@ -116,7 +116,7 @@ go build ./...
 PANEL_HOST=https://panel.example.com \
 PANEL_TOKEN=secret \
 NODE_ID=5 \
-go run .
+go run -tags with_utls .
 ```
 
 如果需要启用 Cloudflare DNS：
@@ -129,7 +129,7 @@ CF_RECORD_NAME=node.example.com \
 PANEL_HOST=https://panel.example.com \
 PANEL_TOKEN=secret \
 NODE_ID=5 \
-go run .
+go run -tags with_utls .
 ```
 
 ## 可靠性说明

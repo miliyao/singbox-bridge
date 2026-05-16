@@ -16,6 +16,7 @@ REPO_REF="main"
 GO_VERSION="1.25.6"
 GO_INSTALL_DIR="/usr/local/go"
 GO_BINARY="/usr/local/go/bin/go"
+BUILD_TAGS="with_utls"
 LISTEN_PORT=443
 CF_ENABLED=false
 DOWNLOAD_URL=""
@@ -206,10 +207,10 @@ prepare_source() {
 }
 
 build_binary_from_source() {
-    log_info "[2/7] 编译 phantom-node..."
+    log_info "[2/7] 编译 phantom-node（构建标签: ${BUILD_TAGS}）..."
     (
         cd "$BUILD_ROOT"
-        PATH="$(dirname "$GO_CMD"):$PATH" "$GO_CMD" build -o "${INSTALL_DIR}/${SERVICE_NAME}" .
+        PATH="$(dirname "$GO_CMD"):$PATH" "$GO_CMD" build -tags "$BUILD_TAGS" -o "${INSTALL_DIR}/${SERVICE_NAME}" .
     )
     chmod +x "${INSTALL_DIR}/${SERVICE_NAME}"
 }

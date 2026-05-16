@@ -18,17 +18,17 @@ const (
 	defaultVLESSFlow              = "xtls-rprx-vision"
 )
 
-// BuildConfig converts panel state into a sing-box runtime configuration.
-// The current implementation targets a VLESS + REALITY deployment.
+// BuildConfig 将 Xboard 下发的节点信息转换成 sing-box 运行配置。
+// 当前实现固定为 VLESS + REALITY + XTLS Vision 这一条运行链路。
 func BuildConfig(nodeConfig *panel.NodeConfig, users []panel.User, listenPort int, logLevel string) (option.Options, error) {
 	if nodeConfig == nil {
-		return option.Options{}, fmt.Errorf("node config is required")
+		return option.Options{}, fmt.Errorf("Xboard 节点配置不能为空")
 	}
 	if strings.TrimSpace(nodeConfig.TLSSettings.ServerName) == "" {
-		return option.Options{}, fmt.Errorf("tls_settings.server_name is required")
+		return option.Options{}, fmt.Errorf("Xboard 节点缺少 tls_settings.server_name")
 	}
 	if strings.TrimSpace(nodeConfig.TLSSettings.PrivateKey) == "" {
-		return option.Options{}, fmt.Errorf("tls_settings.private_key is required")
+		return option.Options{}, fmt.Errorf("Xboard 节点缺少 tls_settings.private_key")
 	}
 
 	flow := strings.TrimSpace(nodeConfig.Flow)
@@ -121,10 +121,10 @@ func parseRealityDestPort(raw string) (uint16, error) {
 
 	port, err := strconv.Atoi(raw)
 	if err != nil {
-		return 0, fmt.Errorf("invalid tls_settings.server_port %q: %w", raw, err)
+		return 0, fmt.Errorf("Xboard 下发的 tls_settings.server_port 无法解析: %q", raw)
 	}
 	if port < 1 || port > 65535 {
-		return 0, fmt.Errorf("tls_settings.server_port out of range: %d", port)
+		return 0, fmt.Errorf("Xboard 下发的 tls_settings.server_port 超出范围: %d", port)
 	}
 	return uint16(port), nil
 }
@@ -136,7 +136,7 @@ func resolveListenAddr(raw string) (netip.Addr, error) {
 
 	addr, err := netip.ParseAddr(strings.TrimSpace(raw))
 	if err != nil {
-		return netip.Addr{}, fmt.Errorf("invalid listen_ip %q: %w", raw, err)
+		return netip.Addr{}, fmt.Errorf("Xboard 下发的 listen_ip 不合法: %q", raw)
 	}
 	return addr, nil
 }

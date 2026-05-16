@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// DNSManager creates, updates, and removes a single Cloudflare A record.
+// DNSManager 负责创建、更新和删除单个 Cloudflare A 记录。
 type DNSManager struct {
 	apiToken   string
 	zoneID     string
@@ -115,7 +115,7 @@ func (d *DNSManager) Deregister() error {
 		time.Sleep(time.Second * time.Duration(i+1))
 	}
 
-	return fmt.Errorf("failed to delete DNS record after 3 attempts: %w", lastErr)
+	return fmt.Errorf("删除 Cloudflare DNS 记录失败，已重试 3 次: %w", lastErr)
 }
 
 func (d *DNSManager) findRecord() (*dnsRecord, error) {
@@ -146,7 +146,7 @@ func (d *DNSManager) upsertRecord(method, recordID, publicIP string) (*dnsRecord
 		"content": publicIP,
 		"ttl":     60,
 		"proxied": false,
-		"comment": "phantom-node auto-register",
+		"comment": "phantom-node 自动注册",
 	}
 
 	endpoint := d.recordsEndpoint()
@@ -171,7 +171,7 @@ func (d *DNSManager) doRequest(method, endpoint string, payload interface{}) ([]
 	if payload != nil {
 		payloadBytes, err := json.Marshal(payload)
 		if err != nil {
-			return nil, fmt.Errorf("failed to encode Cloudflare request: %w", err)
+			return nil, fmt.Errorf("序列化 Cloudflare 请求失败: %w", err)
 		}
 		bodyReader = bytes.NewReader(payloadBytes)
 	}
@@ -187,7 +187,7 @@ func (d *DNSManager) doRequest(method, endpoint string, payload interface{}) ([]
 
 	resp, err := d.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("Cloudflare API request failed: %w", err)
+		return nil, fmt.Errorf("请求 Cloudflare API 失败: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -197,7 +197,7 @@ func (d *DNSManager) doRequest(method, endpoint string, payload interface{}) ([]
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("Cloudflare API HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+		return nil, fmt.Errorf("Cloudflare API 返回 HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
 
 	return respBody, nil
@@ -211,15 +211,15 @@ func decodeResponse[T any](body []byte) (T, error) {
 	var zero T
 	var envelope apiEnvelope[T]
 	if err := json.Unmarshal(body, &envelope); err != nil {
-		return zero, fmt.Errorf("failed to decode Cloudflare response: %w", err)
+		return zero, fmt.Errorf("解析 Cloudflare 响应失败: %w", err)
 	}
 
 	if !envelope.Success {
-		errMsg := "unknown Cloudflare error"
+		errMsg := "未知错误"
 		if len(envelope.Errors) > 0 && envelope.Errors[0].Message != "" {
 			errMsg = envelope.Errors[0].Message
 		}
-		return zero, fmt.Errorf("Cloudflare API error: %s", errMsg)
+		return zero, fmt.Errorf("Cloudflare API 返回错误: %s", errMsg)
 	}
 
 	return envelope.Result, nil
@@ -229,7 +229,7 @@ func normalizePublicIP(raw string) (string, error) {
 	ip := strings.TrimSpace(raw)
 	parsed := net.ParseIP(ip)
 	if parsed == nil || parsed.To4() == nil {
-		return "", fmt.Errorf("invalid IPv4 address: %q", raw)
+		return "", fmt.Errorf("公网 IPv4 地址不合法: %q", raw)
 	}
 	return ip, nil
 }
@@ -260,5 +260,5 @@ func GetPublicIP() (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("failed to detect public IPv4 from all configured services")
+	return "", fmt.Errorf("从所有公网 IP 查询源获取 IPv4 失败")
 }

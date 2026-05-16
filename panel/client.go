@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// Client is an HTTP client for the Xboard UniProxy node APIs.
+// Client 是 Xboard UniProxy 节点接口的 HTTP 客户端。
 type Client struct {
 	baseURL    string
 	token      string
@@ -70,12 +70,12 @@ func NewClient(baseURL, token string, nodeID int) *Client {
 func (c *Client) GetNodeConfig() (*NodeConfig, error) {
 	body, err := c.doGet(c.endpoint("/api/v1/server/UniProxy/config"))
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch node config: %w", err)
+		return nil, fmt.Errorf("获取 Xboard 节点配置失败: %w", err)
 	}
 
 	var config NodeConfig
 	if err := json.Unmarshal(body, &config); err != nil {
-		return nil, fmt.Errorf("failed to decode node config response: %w", err)
+		return nil, fmt.Errorf("解析 Xboard 节点配置失败: %w", err)
 	}
 	return &config, nil
 }
@@ -83,14 +83,14 @@ func (c *Client) GetNodeConfig() (*NodeConfig, error) {
 func (c *Client) GetUsers() ([]User, error) {
 	body, err := c.doGet(c.endpoint("/api/v1/server/UniProxy/user"))
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch user list: %w", err)
+		return nil, fmt.Errorf("获取 Xboard 用户列表失败: %w", err)
 	}
 
 	var resp struct {
 		Users []User `json:"users"`
 	}
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("failed to decode user list response: %w", err)
+		return nil, fmt.Errorf("解析 Xboard 用户列表失败: %w", err)
 	}
 	return resp.Users, nil
 }
@@ -104,12 +104,12 @@ func (c *Client) PushTraffic(data []TrafficData) error {
 
 	payload, err := json.Marshal(trafficMap)
 	if err != nil {
-		return fmt.Errorf("failed to encode traffic payload: %w", err)
+		return fmt.Errorf("序列化流量上报数据失败: %w", err)
 	}
 
 	_, err = c.doPost(c.endpoint("/api/v1/server/UniProxy/push"), string(payload))
 	if err != nil {
-		return fmt.Errorf("failed to push traffic: %w", err)
+		return fmt.Errorf("向 Xboard 上报流量失败: %w", err)
 	}
 	return nil
 }
@@ -120,12 +120,12 @@ func (c *Client) SendAlive(onlineUsers []map[string]interface{}) error {
 	}
 	jsonBytes, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("failed to encode heartbeat payload: %w", err)
+		return fmt.Errorf("序列化在线人数上报数据失败: %w", err)
 	}
 
 	_, err = c.doPost(c.endpoint("/api/v1/server/UniProxy/alive"), string(jsonBytes))
 	if err != nil {
-		return fmt.Errorf("failed to send heartbeat: %w", err)
+		return fmt.Errorf("向 Xboard 上报在线人数失败: %w", err)
 	}
 	return nil
 }

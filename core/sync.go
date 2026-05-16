@@ -22,7 +22,7 @@ type syncPanelClient interface {
 	GetUsers() ([]panel.User, error)
 }
 
-// UserSyncer keeps node config and user state in sync with the panel.
+// UserSyncer 负责定时同步 Xboard 下发的用户和节点配置。
 type UserSyncer struct {
 	engine      syncEngine
 	panelClient syncPanelClient
@@ -65,17 +65,17 @@ func (s *UserSyncer) SetInitialHash(users []panel.User) {
 func (s *UserSyncer) Sync(ctx context.Context) {
 	newUsers, err := s.panelClient.GetUsers()
 	if err != nil {
-		s.logger.Warn("failed to sync users", zap.Error(err))
+		s.logger.Warn("同步 Xboard 用户失败", zap.Error(err))
 		return
 	}
 
 	newConfig, err := s.panelClient.GetNodeConfig()
 	if err != nil {
-		s.logger.Warn("failed to refresh node config; using previous config", zap.Error(err))
+		s.logger.Warn("刷新 Xboard 节点配置失败，将继续使用旧配置", zap.Error(err))
 		newConfig = s.nodeConfig
 	}
 	if newConfig == nil {
-		s.logger.Warn("node config is unavailable; skipping reload")
+		s.logger.Warn("节点配置为空，跳过本次热重载")
 		return
 	}
 
@@ -86,17 +86,17 @@ func (s *UserSyncer) Sync(ctx context.Context) {
 	configChanged := newConfigHash != s.currentConfigHash
 
 	if !usersChanged && !configChanged {
-		s.logger.Debug("panel state unchanged", zap.Int("user_count", len(newUsers)))
+		s.logger.Debug("Xboard 下发状态未变化", zap.Int("user_count", len(newUsers)))
 		return
 	}
 
 	if configChanged {
-		s.logger.Info("detected node config change",
+		s.logger.Info("检测到节点配置变更",
 			zap.String("server_name", newConfig.TLSSettings.ServerName),
 		)
 	}
 	if usersChanged {
-		s.logger.Info("detected user list change", zap.Int("user_count", len(newUsers)))
+		s.logger.Info("检测到用户列表变更", zap.Int("user_count", len(newUsers)))
 	}
 
 	if s.trafficReporter != nil {
@@ -104,7 +104,7 @@ func (s *UserSyncer) Sync(ctx context.Context) {
 	}
 
 	if err := s.engine.ReloadUsers(newConfig, newUsers, s.listenPort, s.logLevel); err != nil {
-		s.logger.Error("failed to reload sing-box", zap.Error(err))
+		s.logger.Error("热重载 sing-box 失败", zap.Error(err))
 		return
 	}
 
@@ -112,7 +112,7 @@ func (s *UserSyncer) Sync(ctx context.Context) {
 	s.currentConfigHash = newConfigHash
 	s.nodeConfig = newConfig
 
-	s.logger.Info("reload complete", zap.Int("user_count", len(newUsers)))
+	s.logger.Info("热重载完成", zap.Int("user_count", len(newUsers)))
 }
 
 func hashUsers(users []panel.User) string {

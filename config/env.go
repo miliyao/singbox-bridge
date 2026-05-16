@@ -14,7 +14,7 @@ const (
 	defaultLogLevel       = "info"
 )
 
-// Config contains all runtime settings loaded from environment variables.
+// Config 保存节点运行所需的全部环境变量配置。
 type Config struct {
 	PanelHost  string
 	PanelToken string
@@ -61,17 +61,17 @@ func Load() (*Config, error) {
 	if cfg.CFEnabled {
 		cfg.CFAPIToken, err = requireEnv("CF_API_TOKEN")
 		if err != nil {
-			return nil, fmt.Errorf("CF_ENABLED=true requires CF_API_TOKEN: %w", err)
+			return nil, fmt.Errorf("启用 Cloudflare DNS 时必须设置 CF_API_TOKEN: %w", err)
 		}
 
 		cfg.CFZoneID, err = requireEnv("CF_ZONE_ID")
 		if err != nil {
-			return nil, fmt.Errorf("CF_ENABLED=true requires CF_ZONE_ID: %w", err)
+			return nil, fmt.Errorf("启用 Cloudflare DNS 时必须设置 CF_ZONE_ID: %w", err)
 		}
 
 		cfg.CFRecordName, err = requireEnv("CF_RECORD_NAME")
 		if err != nil {
-			return nil, fmt.Errorf("CF_ENABLED=true requires CF_RECORD_NAME: %w", err)
+			return nil, fmt.Errorf("启用 Cloudflare DNS 时必须设置 CF_RECORD_NAME: %w", err)
 		}
 	}
 
@@ -81,7 +81,7 @@ func Load() (*Config, error) {
 func requireEnv(key string) (string, error) {
 	val := strings.TrimSpace(os.Getenv(key))
 	if val == "" {
-		return "", fmt.Errorf("environment variable %s is required", key)
+		return "", fmt.Errorf("环境变量 %s 未设置", key)
 	}
 	return val, nil
 }
@@ -94,10 +94,10 @@ func requirePositiveIntEnv(key string) (int, error) {
 
 	value, err := strconv.Atoi(raw)
 	if err != nil {
-		return 0, fmt.Errorf("%s must be an integer: %w", key, err)
+		return 0, fmt.Errorf("%s 必须是整数: %w", key, err)
 	}
 	if value <= 0 {
-		return 0, fmt.Errorf("%s must be greater than zero", key)
+		return 0, fmt.Errorf("%s 必须大于 0", key)
 	}
 	return value, nil
 }

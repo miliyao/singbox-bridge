@@ -18,7 +18,7 @@ const (
 	userNamePrefix    = "user-"
 )
 
-// StatsClient wraps the sing-box V2Ray stats gRPC endpoint.
+// StatsClient 封装 sing-box 的 V2Ray Stats gRPC 接口。
 type StatsClient struct {
 	conn *grpc.ClientConn
 }
@@ -37,7 +37,7 @@ func NewStatsClient(listenAddr string) (*StatsClient, error) {
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect V2Ray stats API: %w", err)
+		return nil, fmt.Errorf("连接 sing-box Stats 接口失败: %w", err)
 	}
 
 	return &StatsClient{conn: conn}, nil
@@ -46,7 +46,7 @@ func NewStatsClient(listenAddr string) (*StatsClient, error) {
 func (s *StatsClient) QueryUserTraffic(ctx context.Context) ([]UserTraffic, error) {
 	resp, err := s.queryStats(ctx, true)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query traffic stats: %w", err)
+		return nil, fmt.Errorf("查询用户流量失败: %w", err)
 	}
 
 	trafficMap := make(map[int]*UserTraffic)
@@ -125,15 +125,15 @@ func (s *StatsClient) Close() error {
 
 func parseUserID(name string) (int, error) {
 	if !strings.HasPrefix(name, userNamePrefix) {
-		return 0, fmt.Errorf("invalid user name format: %s", name)
+		return 0, fmt.Errorf("用户标识格式不正确: %s", name)
 	}
 
 	id, err := strconv.Atoi(strings.TrimPrefix(name, userNamePrefix))
 	if err != nil {
-		return 0, fmt.Errorf("invalid numeric user id in %s: %w", name, err)
+		return 0, fmt.Errorf("用户标识中的数字部分无效: %s", name)
 	}
 	if id <= 0 {
-		return 0, fmt.Errorf("user id must be positive: %d", id)
+		return 0, fmt.Errorf("用户 ID 必须大于 0: %d", id)
 	}
 
 	return id, nil

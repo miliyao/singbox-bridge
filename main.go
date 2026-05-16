@@ -20,13 +20,13 @@ const shutdownTimeout = 30 * time.Second
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to load configuration: %v\n", err)
+		fmt.Fprintf(os.Stderr, "加载配置失败: %v\n", err)
 		os.Exit(1)
 	}
 
 	logger, err := newLogger(cfg.LogLevel)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to initialize logger: %v\n", err)
+		fmt.Fprintf(os.Stderr, "初始化日志失败: %v\n", err)
 		os.Exit(1)
 	}
 	defer func() {
@@ -38,7 +38,7 @@ func main() {
 
 	node := core.NewNode(cfg, logger)
 	if err := node.Start(ctx); err != nil {
-		logger.Fatal("failed to start node", zap.Error(err))
+		logger.Fatal("节点启动失败", zap.Error(err))
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -46,7 +46,7 @@ func main() {
 	defer signal.Stop(sigCh)
 
 	sig := <-sigCh
-	logger.Info("received shutdown signal", zap.String("signal", sig.String()))
+	logger.Info("收到退出信号", zap.String("signal", sig.String()))
 
 	cancel()
 
@@ -54,7 +54,7 @@ func main() {
 	defer shutdownCancel()
 
 	node.Shutdown(shutdownCtx)
-	logger.Info("process exited")
+	logger.Info("进程已退出")
 }
 
 func newLogger(level string) (*zap.Logger, error) {

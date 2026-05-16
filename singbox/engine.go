@@ -20,7 +20,7 @@ import (
 	"github.com/sagernet/sing-box/protocol/vless"
 )
 
-// Engine manages the lifecycle of the embedded sing-box instance.
+// Engine 管理内嵌 sing-box 实例的生命周期。
 type Engine struct {
 	mu            sync.Mutex
 	instance      *box.Box
@@ -64,12 +64,12 @@ func (e *Engine) Start(nodeConfig *panel.NodeConfig, users []panel.User, listenP
 
 	if err := instance.Start(); err != nil {
 		instance.Close()
-		return fmt.Errorf("failed to start sing-box: %w", err)
+		return fmt.Errorf("启动 sing-box 失败: %w", err)
 	}
 
 	statsClient, statsErr := connectStatsClient()
 	if statsErr != nil {
-		fmt.Printf("warning: failed to connect Stats API: %v\n", statsErr)
+		fmt.Printf("警告: 连接 sing-box Stats 接口失败: %v\n", statsErr)
 	}
 
 	e.mu.Lock()
@@ -87,7 +87,7 @@ func (e *Engine) Start(nodeConfig *panel.NodeConfig, users []panel.User, listenP
 func (e *Engine) ReloadUsers(nodeConfig *panel.NodeConfig, newUsers []panel.User, listenPort int, logLevel string) error {
 	newInstance, err := e.createBox(nodeConfig, newUsers, listenPort, logLevel)
 	if err != nil {
-		return fmt.Errorf("failed to build new sing-box instance: %w", err)
+		return fmt.Errorf("构建新的 sing-box 实例失败: %w", err)
 	}
 
 	e.mu.Lock()
@@ -113,15 +113,15 @@ func (e *Engine) ReloadUsers(nodeConfig *panel.NodeConfig, newUsers []panel.User
 
 		rollbackErr := e.restorePreviousInstance(oldConfig, oldUsers, oldListenPort, oldLogLevel)
 		if rollbackErr != nil {
-			return fmt.Errorf("failed to start new sing-box instance: %w; rollback failed: %v", err, rollbackErr)
+			return fmt.Errorf("启动新的 sing-box 实例失败: %w；回滚也失败: %v", err, rollbackErr)
 		}
 
-		return fmt.Errorf("failed to start new sing-box instance, rolled back to previous config: %w", err)
+		return fmt.Errorf("启动新的 sing-box 实例失败，已回滚到旧配置: %w", err)
 	}
 
 	newStats, statsErr := connectStatsClient()
 	if statsErr != nil {
-		fmt.Printf("warning: failed to connect Stats API after reload: %v\n", statsErr)
+		fmt.Printf("警告: 热重载后连接 sing-box Stats 接口失败: %v\n", statsErr)
 	}
 
 	e.mu.Lock()
@@ -139,7 +139,7 @@ func (e *Engine) ReloadUsers(nodeConfig *panel.NodeConfig, newUsers []panel.User
 func (e *Engine) createBox(nodeConfig *panel.NodeConfig, users []panel.User, listenPort int, logLevel string) (*box.Box, error) {
 	opts, err := BuildConfig(nodeConfig, users, listenPort, logLevel)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build sing-box config: %w", err)
+		return nil, fmt.Errorf("生成 sing-box 配置失败: %w", err)
 	}
 
 	ctx := createContext()
@@ -148,7 +148,7 @@ func (e *Engine) createBox(nodeConfig *panel.NodeConfig, users []panel.User, lis
 		Options: opts,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create sing-box instance: %w", err)
+		return nil, fmt.Errorf("创建 sing-box 实例失败: %w", err)
 	}
 	return instance, nil
 }
@@ -210,22 +210,22 @@ func (e *Engine) Close() error {
 
 func (e *Engine) restorePreviousInstance(nodeConfig *panel.NodeConfig, users []panel.User, listenPort int, logLevel string) error {
 	if nodeConfig == nil {
-		return fmt.Errorf("previous engine state is unavailable")
+		return fmt.Errorf("旧实例配置不存在，无法回滚")
 	}
 
 	instance, err := e.createBox(nodeConfig, users, listenPort, logLevel)
 	if err != nil {
-		return fmt.Errorf("failed to rebuild previous sing-box instance: %w", err)
+		return fmt.Errorf("重建旧的 sing-box 实例失败: %w", err)
 	}
 
 	if err := instance.Start(); err != nil {
 		_ = instance.Close()
-		return fmt.Errorf("failed to restart previous sing-box instance: %w", err)
+		return fmt.Errorf("重新启动旧的 sing-box 实例失败: %w", err)
 	}
 
 	statsClient, statsErr := connectStatsClient()
 	if statsErr != nil {
-		fmt.Printf("warning: failed to reconnect Stats API during rollback: %v\n", statsErr)
+		fmt.Printf("警告: 回滚后连接 sing-box Stats 接口失败: %v\n", statsErr)
 	}
 
 	e.mu.Lock()

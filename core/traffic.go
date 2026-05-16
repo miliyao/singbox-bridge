@@ -19,8 +19,8 @@ type trafficPusher interface {
 	PushTraffic(data []panel.TrafficData) error
 }
 
-// TrafficReporter collects traffic deltas and pushes them to the panel.
-// If a push fails, data is buffered in memory and retried on the next report.
+// TrafficReporter 负责采集流量并上报到 Xboard。
+// 当上报失败时，数据会暂存在内存中，等待下一次上报重试。
 type TrafficReporter struct {
 	collector trafficCollector
 	pusher    trafficPusher
@@ -45,7 +45,7 @@ func (t *TrafficReporter) Report(ctx context.Context) {
 
 	trafficList, err := t.collector.CollectTraffic(ctx)
 	if err != nil {
-		t.logger.Warn("failed to collect traffic", zap.Error(err))
+		t.logger.Warn("采集流量失败", zap.Error(err))
 	}
 
 	pushData, bufferedUsers := t.buildPushPayload(trafficList)
@@ -55,7 +55,7 @@ func (t *TrafficReporter) Report(ctx context.Context) {
 
 	if err := t.pusher.PushTraffic(pushData); err != nil {
 		t.bufferPending(pushData)
-		t.logger.Warn("failed to push traffic; buffered for retry",
+		t.logger.Warn("流量上报失败，已缓存等待重试",
 			zap.Error(err),
 			zap.Int("user_count", len(pushData)),
 		)
@@ -70,7 +70,7 @@ func (t *TrafficReporter) Report(ctx context.Context) {
 		totalDown += data.Download
 	}
 
-	t.logger.Info("reported traffic",
+	t.logger.Info("流量上报成功",
 		zap.Int("user_count", len(pushData)),
 		zap.Int("retried_users", bufferedUsers),
 		zap.Int64("upload_bytes", totalUp),

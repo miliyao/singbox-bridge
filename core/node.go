@@ -14,7 +14,7 @@ import (
 
 const aliveReportInterval = 60 * time.Second
 
-// Node orchestrates the lifecycle of a single managed proxy node.
+// Node 负责编排 Xboard 单节点的完整生命周期。
 type Node struct {
 	cfg         *config.Config
 	engine      *singbox.Engine
@@ -36,18 +36,18 @@ func NewNode(cfg *config.Config, logger *zap.Logger) *Node {
 }
 
 func (n *Node) Start(ctx context.Context) error {
-	n.logger.Info("starting phantom-node",
+	n.logger.Info("开始启动 Xboard 节点",
 		zap.Int("node_id", n.cfg.NodeID),
 		zap.String("panel", n.cfg.PanelHost),
 	)
 
-	n.logger.Info("fetching node configuration")
+	n.logger.Info("正在拉取 Xboard 节点配置")
 	nodeConfig, err := n.panelClient.GetNodeConfig()
 	if err != nil {
 		return err
 	}
 
-	n.logger.Info("fetched node configuration",
+	n.logger.Info("节点配置拉取成功",
 		zap.Int("server_port", nodeConfig.ServerPort),
 		zap.String("protocol", nodeConfig.Protocol),
 		zap.String("server_name", nodeConfig.TLSSettings.ServerName),
@@ -61,21 +61,21 @@ func (n *Node) Start(ctx context.Context) error {
 		n.cfg.ReportInterval = nodeConfig.BaseConfig.PushInterval
 	}
 
-	n.logger.Info("fetching users")
+	n.logger.Info("正在拉取 Xboard 用户列表")
 	users, err := n.panelClient.GetUsers()
 	if err != nil {
 		return err
 	}
-	n.logger.Info("fetched users", zap.Int("user_count", len(users)))
+	n.logger.Info("用户列表拉取成功", zap.Int("user_count", len(users)))
 
-	n.logger.Info("starting sing-box")
+	n.logger.Info("正在启动 sing-box")
 	if err := n.engine.Start(nodeConfig, users, n.cfg.ListenPort, n.cfg.LogLevel); err != nil {
 		return err
 	}
-	n.logger.Info("sing-box started", zap.Int("listen_port", n.cfg.ListenPort))
+	n.logger.Info("sing-box 启动成功", zap.Int("listen_port", n.cfg.ListenPort))
 
 	if n.cfg.CFEnabled {
-		n.logger.Info("registering Cloudflare DNS record")
+		n.logger.Info("正在注册 Cloudflare DNS 记录")
 		publicIP, err := cloudflare.GetPublicIP()
 		if err != nil {
 			return err
@@ -86,14 +86,14 @@ func (n *Node) Start(ctx context.Context) error {
 			return err
 		}
 
-		n.logger.Info("Cloudflare DNS record is active",
+		n.logger.Info("Cloudflare DNS 记录已生效",
 			zap.String("record", n.cfg.CFRecordName),
 			zap.String("public_ip", publicIP),
 		)
 	}
 
 	if err := n.panelClient.SendAlive([]map[string]interface{}{}); err != nil {
-		n.logger.Warn("initial heartbeat failed", zap.Error(err))
+		n.logger.Warn("首次在线人数上报失败", zap.Error(err))
 	}
 
 	n.trafficReporter = NewTrafficReporter(n.engine, n.panelClient, n.logger)
@@ -110,7 +110,7 @@ func (n *Node) Start(ctx context.Context) error {
 
 	go n.runTickers(ctx)
 
-	n.logger.Info("phantom-node started",
+	n.logger.Info("Xboard 节点启动完成",
 		zap.Int("sync_interval_seconds", n.cfg.SyncInterval),
 		zap.Int("report_interval_seconds", n.cfg.ReportInterval),
 	)
@@ -137,37 +137,37 @@ func (n *Node) runTickers(ctx context.Context) {
 		case <-aliveTicker.C:
 			onlineCount := n.engine.GetOnlineCount(ctx)
 			if err := n.panelClient.SendAlive(buildOnlineUsers(onlineCount)); err != nil {
-				n.logger.Warn("heartbeat push failed", zap.Error(err))
+				n.logger.Warn("在线人数上报失败", zap.Error(err))
 			} else {
-				n.logger.Debug("heartbeat pushed", zap.Int("online_users", onlineCount))
+				n.logger.Debug("在线人数上报成功", zap.Int("online_users", onlineCount))
 			}
 		}
 	}
 }
 
 func (n *Node) Shutdown(ctx context.Context) {
-	n.logger.Info("shutting down phantom-node")
+	n.logger.Info("开始关闭 Xboard 节点")
 
 	if n.trafficReporter != nil {
-		n.logger.Info("flushing final traffic report")
+		n.logger.Info("正在刷新最后一批流量数据")
 		n.trafficReporter.Report(ctx)
 	}
 
 	if n.dnsMgr != nil {
-		n.logger.Info("removing Cloudflare DNS record")
+		n.logger.Info("正在移除 Cloudflare DNS 记录")
 		if err := n.dnsMgr.Deregister(); err != nil {
-			n.logger.Error("failed to remove Cloudflare DNS record", zap.Error(err))
+			n.logger.Error("移除 Cloudflare DNS 记录失败", zap.Error(err))
 		} else {
-			n.logger.Info("Cloudflare DNS record removed")
+			n.logger.Info("Cloudflare DNS 记录已移除")
 		}
 	}
 
-	n.logger.Info("stopping sing-box")
+	n.logger.Info("正在关闭 sing-box")
 	if err := n.engine.Close(); err != nil {
-		n.logger.Error("sing-box closed with error", zap.Error(err))
+		n.logger.Error("关闭 sing-box 时发生异常", zap.Error(err))
 	}
 
-	n.logger.Info("phantom-node shutdown complete")
+	n.logger.Info("Xboard 节点已完全关闭")
 }
 
 func buildOnlineUsers(count int) []map[string]interface{} {

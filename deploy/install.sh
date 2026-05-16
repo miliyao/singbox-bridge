@@ -15,10 +15,10 @@ DOWNLOAD_URL="https://s.fjjxu.plus/phantom/phantom-node"
 
 usage() {
     cat <<'EOF'
-Usage:
+用法:
   bash install.sh --node-id=5 --panel=https://panel.example.com --token=secret
 
-Optional arguments:
+可选参数:
   --port=443
   --download-url=https://example.com/phantom-node
   --cf-enabled
@@ -29,7 +29,7 @@ EOF
 }
 
 if [ "$(id -u)" -ne 0 ]; then
-    echo -e "${RED}This installer must be run as root.${NC}"
+    echo -e "${RED}安装脚本必须以 root 身份运行。${NC}"
     exit 1
 fi
 
@@ -49,7 +49,7 @@ for arg in "$@"; do
             exit 0
             ;;
         *)
-            echo -e "${RED}Unknown argument: $arg${NC}"
+            echo -e "${RED}未知参数: $arg${NC}"
             usage
             exit 1
             ;;
@@ -57,38 +57,38 @@ for arg in "$@"; do
 done
 
 if [ -z "${NODE_ID:-}" ] || [ -z "${PANEL_HOST:-}" ] || [ -z "${PANEL_TOKEN:-}" ]; then
-    echo -e "${RED}--node-id, --panel, and --token are required.${NC}"
+    echo -e "${RED}必须提供 --node-id、--panel 和 --token。${NC}"
     usage
     exit 1
 fi
 
 if [ "$CF_ENABLED" = "true" ]; then
     if [ -z "${CF_API_TOKEN:-}" ] || [ -z "${CF_ZONE_ID:-}" ] || [ -z "${CF_RECORD_NAME:-}" ]; then
-        echo -e "${RED}Cloudflare mode requires --cf-token, --cf-zone, and --cf-record.${NC}"
+        echo -e "${RED}启用 Cloudflare DNS 时必须提供 --cf-token、--cf-zone 和 --cf-record。${NC}"
         exit 1
     fi
 fi
 
 if ! command -v curl >/dev/null 2>&1; then
-    echo -e "${RED}curl is required but not installed.${NC}"
+    echo -e "${RED}系统缺少 curl，无法继续安装。${NC}"
     exit 1
 fi
 
 echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}  phantom-node installer${NC}"
+echo -e "${GREEN}  phantom-node Xboard 节点安装程序${NC}"
 echo -e "${GREEN}========================================${NC}"
-echo -e "  Node ID:      ${YELLOW}${NODE_ID}${NC}"
-echo -e "  Panel:        ${YELLOW}${PANEL_HOST}${NC}"
-echo -e "  Listen port:  ${YELLOW}${LISTEN_PORT}${NC}"
-echo -e "  CF DNS:       ${YELLOW}${CF_ENABLED}${NC}"
+echo -e "  节点 ID:      ${YELLOW}${NODE_ID}${NC}"
+echo -e "  面板地址:     ${YELLOW}${PANEL_HOST}${NC}"
+echo -e "  监听端口:     ${YELLOW}${LISTEN_PORT}${NC}"
+echo -e "  Cloudflare:   ${YELLOW}${CF_ENABLED}${NC}"
 echo ""
 
-echo -e "${GREEN}[1/6] Downloading phantom-node...${NC}"
+echo -e "${GREEN}[1/6] 下载 phantom-node 二进制...${NC}"
 curl -fsSL -o "${INSTALL_DIR}/${SERVICE_NAME}" "${DOWNLOAD_URL}"
 chmod +x "${INSTALL_DIR}/${SERVICE_NAME}"
-echo -e "  OK: downloaded to ${INSTALL_DIR}/${SERVICE_NAME}"
+echo -e "  完成: 已下载到 ${INSTALL_DIR}/${SERVICE_NAME}"
 
-echo -e "${GREEN}[2/6] Writing environment file...${NC}"
+echo -e "${GREEN}[2/6] 写入环境变量文件...${NC}"
 cat > "${ENV_FILE}" <<EOF
 PANEL_HOST=${PANEL_HOST}
 PANEL_TOKEN=${PANEL_TOKEN}
@@ -106,12 +106,12 @@ EOF
 fi
 
 chmod 600 "${ENV_FILE}"
-echo -e "  OK: wrote ${ENV_FILE}"
+echo -e "  完成: 已写入 ${ENV_FILE}"
 
-echo -e "${GREEN}[3/6] Creating systemd service...${NC}"
+echo -e "${GREEN}[3/6] 创建 systemd 服务...${NC}"
 cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
-Description=Phantom Gateway Node (ID: ${NODE_ID})
+Description=Phantom Xboard Node (ID: ${NODE_ID})
 After=network.target
 
 [Service]
@@ -127,31 +127,31 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-echo -e "  OK: created systemd unit"
+echo -e "  完成: systemd 服务已创建"
 
-echo -e "${GREEN}[4/6] Opening firewall port...${NC}"
+echo -e "${GREEN}[4/6] 放行防火墙端口...${NC}"
 if command -v ufw >/dev/null 2>&1; then
     ufw allow "${LISTEN_PORT}/tcp" >/dev/null 2>&1
-    echo -e "  OK: allowed TCP ${LISTEN_PORT} with ufw"
+    echo -e "  完成: 已通过 ufw 放行 TCP ${LISTEN_PORT}"
 elif command -v iptables >/dev/null 2>&1; then
     iptables -I INPUT -p tcp --dport "${LISTEN_PORT}" -j ACCEPT 2>/dev/null || true
-    echo -e "  OK: allowed TCP ${LISTEN_PORT} with iptables"
+    echo -e "  完成: 已通过 iptables 放行 TCP ${LISTEN_PORT}"
 else
-    echo -e "  ${YELLOW}WARN: no firewall tool found, open TCP ${LISTEN_PORT} manually if needed.${NC}"
+    echo -e "  ${YELLOW}提示: 未检测到防火墙工具，如有需要请手动放行 TCP ${LISTEN_PORT}。${NC}"
 fi
 
-echo -e "${GREEN}[5/6] Applying network tuning...${NC}"
+echo -e "${GREEN}[5/6] 应用网络优化参数...${NC}"
 if sysctl net.ipv4.tcp_available_congestion_control 2>/dev/null | grep -q bbr; then
     sysctl -w net.core.default_qdisc=fq >/dev/null 2>&1
     sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null 2>&1
-    echo -e "  OK: enabled BBR"
+    echo -e "  完成: 已启用 BBR"
 else
-    echo -e "  ${YELLOW}WARN: kernel does not advertise BBR support, skipping live enable.${NC}"
+    echo -e "  ${YELLOW}提示: 当前内核未声明支持 BBR，跳过即时启用。${NC}"
 fi
 
 SYSCTL_CONF="/etc/sysctl.d/99-phantom-node.conf"
 cat > "${SYSCTL_CONF}" <<'EOF'
-# phantom-node network tuning
+# phantom-node 网络优化
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 net.core.rmem_max = 16777216
@@ -169,7 +169,7 @@ net.nf_conntrack_max = 1048576
 EOF
 
 sysctl -p "${SYSCTL_CONF}" >/dev/null 2>&1 || true
-echo -e "  OK: wrote ${SYSCTL_CONF}"
+echo -e "  完成: 已写入 ${SYSCTL_CONF}"
 
 LIMITS_CONF="/etc/security/limits.d/99-phantom-node.conf"
 cat > "${LIMITS_CONF}" <<'EOF'
@@ -178,24 +178,24 @@ cat > "${LIMITS_CONF}" <<'EOF'
 root soft nofile 1048576
 root hard nofile 1048576
 EOF
-echo -e "  OK: raised nofile limits"
+echo -e "  完成: 已提升 nofile 限制"
 
-echo -e "${GREEN}[6/6] Starting service...${NC}"
+echo -e "${GREEN}[6/6] 启动服务...${NC}"
 systemctl enable --now "${SERVICE_NAME}"
 sleep 2
 
 if systemctl is-active --quiet "${SERVICE_NAME}"; then
     echo ""
     echo -e "${GREEN}========================================${NC}"
-    echo -e "${GREEN}  phantom-node installation complete${NC}"
+    echo -e "${GREEN}  phantom-node 安装完成${NC}"
     echo -e "${GREEN}========================================${NC}"
-    echo -e "  Logs:    journalctl -u ${SERVICE_NAME} -f"
-    echo -e "  Stop:    systemctl stop ${SERVICE_NAME}"
-    echo -e "  Restart: systemctl restart ${SERVICE_NAME}"
+    echo -e "  查看日志: journalctl -u ${SERVICE_NAME} -f"
+    echo -e "  停止服务: systemctl stop ${SERVICE_NAME}"
+    echo -e "  重启服务: systemctl restart ${SERVICE_NAME}"
     echo ""
-    echo -e "  ${YELLOW}A reboot is recommended so all kernel tuning becomes persistent.${NC}"
+    echo -e "  ${YELLOW}建议重启一次系统，以确保所有内核优化参数持久生效。${NC}"
 else
-    echo -e "${RED}Service failed to start. Inspect logs with:${NC}"
+    echo -e "${RED}服务启动失败，请执行以下命令查看日志:${NC}"
     echo -e "  journalctl -u ${SERVICE_NAME} --no-pager -n 20"
     exit 1
 fi

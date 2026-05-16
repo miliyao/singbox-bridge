@@ -4,85 +4,110 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
-// Config 保存所有从环境变量读取的配置项
+const (
+	defaultSyncInterval   = 60
+	defaultReportInterval = 60
+	defaultListenPort     = 443
+	defaultLogLevel       = "info"
+)
+
+// Config contains all runtime settings loaded from environment variables.
 type Config struct {
-	// 必填项
-	PanelHost  string // Xboard 面板地址（含 https://）
-	PanelToken string // 节点通信 Token
-	NodeID     int    // 节点 ID
+	PanelHost  string
+	PanelToken string
+	NodeID     int
 
-	// 可选项（带默认值）
-	SyncInterval   int    // 用户同步周期（秒），默认 60
-	ReportInterval int    // 流量上报周期（秒），默认 60
-	ListenPort     int    // sing-box 监听端口，默认 443
-	LogLevel       string // 日志级别，默认 info
+	SyncInterval   int
+	ReportInterval int
+	ListenPort     int
+	LogLevel       string
 
-	// Cloudflare DNS 自注册（参数控制是否启用）
-	CFEnabled    bool   // 是否启用 CF DNS 自注册，默认 false
-	CFAPIToken   string // CF API Token
-	CFZoneID     string // CF Zone ID
-	CFRecordName string // DNS 记录名（如 us-pool.xxx.com）
+	CFEnabled    bool
+	CFAPIToken   string
+	CFZoneID     string
+	CFRecordName string
 }
 
-// Load 从环境变量加载并校验配置
 func Load() (*Config, error) {
-	cfg := &Config{}
-
-	// 必填项校验
-	cfg.PanelHost = os.Getenv("PANEL_HOST")
-	if cfg.PanelHost == "" {
-		return nil, fmt.Errorf("环境变量 PANEL_HOST 未设置")
-	}
-
-	cfg.PanelToken = os.Getenv("PANEL_TOKEN")
-	if cfg.PanelToken == "" {
-		return nil, fmt.Errorf("环境变量 PANEL_TOKEN 未设置")
-	}
-
-	nodeIDStr := os.Getenv("NODE_ID")
-	if nodeIDStr == "" {
-		return nil, fmt.Errorf("环境变量 NODE_ID 未设置")
-	}
-	nodeID, err := strconv.Atoi(nodeIDStr)
+	panelHost, err := requireEnv("PANEL_HOST")
 	if err != nil {
-		return nil, fmt.Errorf("NODE_ID 必须为整数: %w", err)
+		return nil, err
 	}
-	cfg.NodeID = nodeID
 
-	// 可选项，带默认值
-	cfg.SyncInterval = getEnvInt("SYNC_INTERVAL", 60)
-	cfg.ReportInterval = getEnvInt("REPORT_INTERVAL", 60)
-	cfg.ListenPort = getEnvInt("LISTEN_PORT", 443)
-	cfg.LogLevel = getEnvString("LOG_LEVEL", "info")
+	panelToken, err := requireEnv("PANEL_TOKEN")
+	if err != nil {
+		return nil, err
+	}
 
-	// Cloudflare 相关
-	cfg.CFEnabled = getEnvBool("CF_ENABLED", false)
+	nodeID, err := requirePositiveIntEnv("NODE_ID")
+	if err != nil {
+		return nil, err
+	}
+
+	cfg := &Config{
+		PanelHost:      panelHost,
+		PanelToken:     panelToken,
+		NodeID:         nodeID,
+		SyncInterval:   normalizePositiveInt(getEnvInt("SYNC_INTERVAL", defaultSyncInterval), defaultSyncInterval),
+		ReportInterval: normalizePositiveInt(getEnvInt("REPORT_INTERVAL", defaultReportInterval), defaultReportInterval),
+		ListenPort:     normalizePort(getEnvInt("LISTEN_PORT", defaultListenPort)),
+		LogLevel:       normalizeLogLevel(getEnvString("LOG_LEVEL", defaultLogLevel)),
+		CFEnabled:      getEnvBool("CF_ENABLED", false),
+	}
+
 	if cfg.CFEnabled {
-		cfg.CFAPIToken = os.Getenv("CF_API_TOKEN")
-		if cfg.CFAPIToken == "" {
-			return nil, fmt.Errorf("CF_ENABLED=true 时 CF_API_TOKEN 必须设置")
+		cfg.CFAPIToken, err = requireEnv("CF_API_TOKEN")
+		if err != nil {
+			return nil, fmt.Errorf("CF_ENABLED=true requires CF_API_TOKEN: %w", err)
 		}
-		cfg.CFZoneID = os.Getenv("CF_ZONE_ID")
-		if cfg.CFZoneID == "" {
-			return nil, fmt.Errorf("CF_ENABLED=true 时 CF_ZONE_ID 必须设置")
+
+		cfg.CFZoneID, err = requireEnv("CF_ZONE_ID")
+		if err != nil {
+			return nil, fmt.Errorf("CF_ENABLED=true requires CF_ZONE_ID: %w", err)
 		}
-		cfg.CFRecordName = os.Getenv("CF_RECORD_NAME")
-		if cfg.CFRecordName == "" {
-			return nil, fmt.Errorf("CF_ENABLED=true 时 CF_RECORD_NAME 必须设置")
+
+		cfg.CFRecordName, err = requireEnv("CF_RECORD_NAME")
+		if err != nil {
+			return nil, fmt.Errorf("CF_ENABLED=true requires CF_RECORD_NAME: %w", err)
 		}
 	}
 
 	return cfg, nil
 }
 
-// getEnvInt 读取整数型环境变量，不存在或解析失败则返回默认值
+func requireEnv(key string) (string, error) {
+	val := strings.TrimSpace(os.Getenv(key))
+	if val == "" {
+		return "", fmt.Errorf("environment variable %s is required", key)
+	}
+	return val, nil
+}
+
+func requirePositiveIntEnv(key string) (int, error) {
+	raw, err := requireEnv(key)
+	if err != nil {
+		return 0, err
+	}
+
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be an integer: %w", key, err)
+	}
+	if value <= 0 {
+		return 0, fmt.Errorf("%s must be greater than zero", key)
+	}
+	return value, nil
+}
+
 func getEnvInt(key string, defaultVal int) int {
-	val := os.Getenv(key)
+	val := strings.TrimSpace(os.Getenv(key))
 	if val == "" {
 		return defaultVal
 	}
+
 	parsed, err := strconv.Atoi(val)
 	if err != nil {
 		return defaultVal
@@ -90,24 +115,52 @@ func getEnvInt(key string, defaultVal int) int {
 	return parsed
 }
 
-// getEnvString 读取字符串型环境变量，不存在则返回默认值
 func getEnvString(key, defaultVal string) string {
-	val := os.Getenv(key)
+	val := strings.TrimSpace(os.Getenv(key))
 	if val == "" {
 		return defaultVal
 	}
 	return val
 }
 
-// getEnvBool 读取布尔型环境变量，不存在则返回默认值
 func getEnvBool(key string, defaultVal bool) bool {
-	val := os.Getenv(key)
+	val := strings.TrimSpace(os.Getenv(key))
 	if val == "" {
 		return defaultVal
 	}
+
 	parsed, err := strconv.ParseBool(val)
 	if err != nil {
 		return defaultVal
 	}
 	return parsed
+}
+
+func normalizePositiveInt(value, fallback int) int {
+	if value <= 0 {
+		return fallback
+	}
+	return value
+}
+
+func normalizePort(port int) int {
+	if port < 1 || port > 65535 {
+		return defaultListenPort
+	}
+	return port
+}
+
+func normalizeLogLevel(level string) string {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "debug":
+		return "debug"
+	case "info":
+		return "info"
+	case "warn":
+		return "warn"
+	case "error":
+		return "error"
+	default:
+		return defaultLogLevel
+	}
 }

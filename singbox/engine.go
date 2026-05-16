@@ -241,7 +241,7 @@ func (e *Engine) restorePreviousInstance(nodeConfig *panel.NodeConfig, users []p
 }
 
 func connectStatsClient() (*StatsClient, error) {
-	return NewStatsClient("127.0.0.1:10085")
+	return NewStatsClient(StatsListenAddr)
 }
 
 func cloneUsers(users []panel.User) []panel.User {

@@ -35,7 +35,7 @@ usage() {
   --cf-record=node.example.com
 
 示例:
-  bash <(curl -fsSL https://raw.githubusercontent.com/miliyao/phantom-node/main/deploy/install.sh) \
+  bash <(curl -fsSL https://raw.githubusercontent.com/miliyao/phantom-node/main/install.sh) \
     --node-id=5 \
     --panel=https://panel.example.com \
     --token=secret

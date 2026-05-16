@@ -67,7 +67,7 @@
 部署命令：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/miliyao/phantom-node/main/deploy/install.sh) \
+bash <(curl -fsSL https://raw.githubusercontent.com/miliyao/phantom-node/main/install.sh) \
   --node-id=5 \
   --panel=https://panel.example.com \
   --token=secret
@@ -76,7 +76,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/miliyao/phantom-node/main/de
 如果需要启用 Cloudflare DNS：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/miliyao/phantom-node/main/deploy/install.sh) \
+bash <(curl -fsSL https://raw.githubusercontent.com/miliyao/phantom-node/main/install.sh) \
   --node-id=5 \
   --panel=https://panel.example.com \
   --token=secret \
@@ -89,7 +89,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/miliyao/phantom-node/main/de
 如果你已经有现成的 Linux 二进制，也可以指定下载地址跳过源码编译：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/miliyao/phantom-node/main/deploy/install.sh) \
+bash <(curl -fsSL https://raw.githubusercontent.com/miliyao/phantom-node/main/install.sh) \
   --node-id=5 \
   --panel=https://panel.example.com \
   --token=secret \
@@ -108,6 +108,28 @@ go test ./...
 
 ```bash
 go build ./...
+```
+
+本地运行示例：
+
+```bash
+PANEL_HOST=https://panel.example.com \
+PANEL_TOKEN=secret \
+NODE_ID=5 \
+go run .
+```
+
+如果需要启用 Cloudflare DNS：
+
+```bash
+CF_ENABLED=true \
+CF_API_TOKEN=你的_CF_API_TOKEN \
+CF_ZONE_ID=你的_CF_ZONE_ID \
+CF_RECORD_NAME=node.example.com \
+PANEL_HOST=https://panel.example.com \
+PANEL_TOKEN=secret \
+NODE_ID=5 \
+go run .
 ```
 
 ## 可靠性说明

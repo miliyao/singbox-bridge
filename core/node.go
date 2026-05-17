@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"phantom-node/cloudflare"
 	"phantom-node/config"
 	"phantom-node/panel"
 	"phantom-node/singbox"
@@ -19,7 +18,6 @@ type Node struct {
 	cfg         *config.Config
 	engine      *singbox.Engine
 	panelClient *panel.Client
-	dnsMgr      *cloudflare.DNSManager
 	logger      *zap.Logger
 
 	trafficReporter *TrafficReporter
@@ -73,24 +71,6 @@ func (n *Node) Start(ctx context.Context) error {
 		return err
 	}
 	n.logger.Info("sing-box 启动成功", zap.Int("listen_port", n.cfg.ListenPort))
-
-	if n.cfg.CFEnabled {
-		n.logger.Info("正在注册 Cloudflare DNS 记录")
-		publicIP, err := cloudflare.GetPublicIP()
-		if err != nil {
-			return err
-		}
-
-		n.dnsMgr = cloudflare.NewDNSManager(n.cfg.CFAPIToken, n.cfg.CFZoneID, n.cfg.CFRecordName)
-		if err := n.dnsMgr.Register(publicIP); err != nil {
-			return err
-		}
-
-		n.logger.Info("Cloudflare DNS 记录已生效",
-			zap.String("record", n.cfg.CFRecordName),
-			zap.String("public_ip", publicIP),
-		)
-	}
 
 	if err := n.panelClient.SendAlive([]map[string]interface{}{}); err != nil {
 		n.logger.Warn("首次在线人数上报失败", zap.Error(err))
@@ -151,15 +131,6 @@ func (n *Node) Shutdown(ctx context.Context) {
 	if n.trafficReporter != nil {
 		n.logger.Info("正在刷新最后一批流量数据")
 		n.trafficReporter.Report(ctx)
-	}
-
-	if n.dnsMgr != nil {
-		n.logger.Info("正在移除 Cloudflare DNS 记录")
-		if err := n.dnsMgr.Deregister(); err != nil {
-			n.logger.Error("移除 Cloudflare DNS 记录失败", zap.Error(err))
-		} else {
-			n.logger.Info("Cloudflare DNS 记录已移除")
-		}
 	}
 
 	n.logger.Info("正在关闭 sing-box")

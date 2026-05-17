@@ -24,11 +24,6 @@ type Config struct {
 	ReportInterval int
 	ListenPort     int
 	LogLevel       string
-
-	CFEnabled    bool
-	CFAPIToken   string
-	CFZoneID     string
-	CFRecordName string
 }
 
 func Load() (*Config, error) {
@@ -55,24 +50,6 @@ func Load() (*Config, error) {
 		ReportInterval: normalizePositiveInt(getEnvInt("REPORT_INTERVAL", defaultReportInterval), defaultReportInterval),
 		ListenPort:     normalizePort(getEnvInt("LISTEN_PORT", defaultListenPort)),
 		LogLevel:       normalizeLogLevel(getEnvString("LOG_LEVEL", defaultLogLevel)),
-		CFEnabled:      getEnvBool("CF_ENABLED", false),
-	}
-
-	if cfg.CFEnabled {
-		cfg.CFAPIToken, err = requireEnv("CF_API_TOKEN")
-		if err != nil {
-			return nil, fmt.Errorf("启用 Cloudflare DNS 时必须设置 CF_API_TOKEN: %w", err)
-		}
-
-		cfg.CFZoneID, err = requireEnv("CF_ZONE_ID")
-		if err != nil {
-			return nil, fmt.Errorf("启用 Cloudflare DNS 时必须设置 CF_ZONE_ID: %w", err)
-		}
-
-		cfg.CFRecordName, err = requireEnv("CF_RECORD_NAME")
-		if err != nil {
-			return nil, fmt.Errorf("启用 Cloudflare DNS 时必须设置 CF_RECORD_NAME: %w", err)
-		}
 	}
 
 	return cfg, nil
@@ -121,19 +98,6 @@ func getEnvString(key, defaultVal string) string {
 		return defaultVal
 	}
 	return val
-}
-
-func getEnvBool(key string, defaultVal bool) bool {
-	val := strings.TrimSpace(os.Getenv(key))
-	if val == "" {
-		return defaultVal
-	}
-
-	parsed, err := strconv.ParseBool(val)
-	if err != nil {
-		return defaultVal
-	}
-	return parsed
 }
 
 func normalizePositiveInt(value, fallback int) int {

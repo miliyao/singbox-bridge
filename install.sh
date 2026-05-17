@@ -12,14 +12,16 @@ ENV_FILE="/etc/phantom-node.env"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 BUILD_ROOT="/usr/local/src/${SERVICE_NAME}"
 REPO_URL="https://github.com/miliyao/phantom-node.git"
+RELEASE_REPO="miliyao/phantom-node"
 REPO_REF="main"
+RELEASE_VERSION="latest"
 GO_VERSION="1.25.6"
 GO_INSTALL_DIR="/usr/local/go"
 GO_BINARY="/usr/local/go/bin/go"
 BUILD_TAGS="with_utls"
 LISTEN_PORT=443
-CF_ENABLED=false
 DOWNLOAD_URL=""
+INSTALL_FROM_SOURCE=false
 
 usage() {
     cat <<'EOF'
@@ -28,12 +30,10 @@ usage() {
 
 可选参数:
   --port=443
+  --version=latest|v0.1.0
   --ref=main
+  --source
   --download-url=https://example.com/phantom-node
-  --cf-enabled
-  --cf-token=xxx
-  --cf-zone=xxx
-  --cf-record=node.example.com
 
 示例:
   bash <(curl -fsSL https://raw.githubusercontent.com/miliyao/phantom-node/main/install.sh) \
@@ -69,12 +69,10 @@ parse_args() {
             --panel=*) PANEL_HOST="${arg#*=}" ;;
             --token=*) PANEL_TOKEN="${arg#*=}" ;;
             --port=*) LISTEN_PORT="${arg#*=}" ;;
+            --version=*) RELEASE_VERSION="${arg#*=}" ;;
             --ref=*) REPO_REF="${arg#*=}" ;;
+            --source) INSTALL_FROM_SOURCE=true ;;
             --download-url=*) DOWNLOAD_URL="${arg#*=}" ;;
-            --cf-enabled) CF_ENABLED=true ;;
-            --cf-token=*) CF_API_TOKEN="${arg#*=}" ;;
-            --cf-zone=*) CF_ZONE_ID="${arg#*=}" ;;
-            --cf-record=*) CF_RECORD_NAME="${arg#*=}" ;;
             --help|-h)
                 usage
                 exit 0
@@ -94,27 +92,24 @@ validate_args() {
         usage
         exit 1
     fi
-
-    if [ "$CF_ENABLED" = "true" ]; then
-        if [ -z "${CF_API_TOKEN:-}" ] || [ -z "${CF_ZONE_ID:-}" ] || [ -z "${CF_RECORD_NAME:-}" ]; then
-            log_error "启用 Cloudflare DNS 时必须提供 --cf-token、--cf-zone 和 --cf-record。"
-            exit 1
-        fi
-    fi
 }
 
 ensure_base_dependencies() {
-    local missing=""
-    for cmd in curl git tar; do
-        if ! command -v "$cmd" >/dev/null 2>&1; then
-            missing="$missing $cmd"
-        fi
-    done
-
     if ! command -v systemctl >/dev/null 2>&1; then
         log_error "当前系统未检测到 systemd/systemctl，脚本暂不支持非 systemd 环境。"
         exit 1
     fi
+
+    ensure_commands curl
+}
+
+ensure_commands() {
+    local missing=""
+    for cmd in "$@"; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            missing="$missing $cmd"
+        fi
+    done
 
     if [ -n "$missing" ]; then
         log_warn "检测到缺少依赖:$missing"
@@ -126,22 +121,22 @@ install_packages() {
     if command -v apt-get >/dev/null 2>&1; then
         export DEBIAN_FRONTEND=noninteractive
         apt-get update -y
-        apt-get install -y ca-certificates curl git tar "$@"
+        apt-get install -y ca-certificates "$@"
         return
     fi
 
     if command -v dnf >/dev/null 2>&1; then
-        dnf install -y ca-certificates curl git tar "$@"
+        dnf install -y ca-certificates "$@"
         return
     fi
 
     if command -v yum >/dev/null 2>&1; then
-        yum install -y ca-certificates curl git tar "$@"
+        yum install -y ca-certificates "$@"
         return
     fi
 
     if command -v apk >/dev/null 2>&1; then
-        apk add --no-cache ca-certificates curl git tar "$@"
+        apk add --no-cache ca-certificates "$@"
         return
     fi
 
@@ -173,6 +168,11 @@ ensure_go() {
     detect_arch
     install_go
     GO_CMD="$GO_BINARY"
+}
+
+ensure_source_dependencies() {
+    ensure_commands git tar
+    ensure_go
 }
 
 install_go() {
@@ -208,17 +208,75 @@ prepare_source() {
 
 build_binary_from_source() {
     log_info "[2/7] 编译 phantom-node（构建标签: ${BUILD_TAGS}）..."
+    local tmp_bin="${INSTALL_DIR}/${SERVICE_NAME}.new"
     (
         cd "$BUILD_ROOT"
-        PATH="$(dirname "$GO_CMD"):$PATH" "$GO_CMD" build -tags "$BUILD_TAGS" -o "${INSTALL_DIR}/${SERVICE_NAME}" .
+        PATH="$(dirname "$GO_CMD"):$PATH" "$GO_CMD" build -tags "$BUILD_TAGS" -o "$tmp_bin" .
     )
-    chmod +x "${INSTALL_DIR}/${SERVICE_NAME}"
+    chmod +x "$tmp_bin"
+    mv "$tmp_bin" "${INSTALL_DIR}/${SERVICE_NAME}"
 }
 
 download_binary() {
-    log_info "[1/7] 下载 phantom-node 二进制..."
-    curl -fsSL -o "${INSTALL_DIR}/${SERVICE_NAME}" "$DOWNLOAD_URL"
-    chmod +x "${INSTALL_DIR}/${SERVICE_NAME}"
+    local url="$1"
+    local label="$2"
+    local tmp_bin="${INSTALL_DIR}/${SERVICE_NAME}.new"
+
+    log_info "[1/7] 下载 ${label}..."
+    curl -fL --retry 3 --connect-timeout 15 -o "$tmp_bin" "$url"
+    chmod +x "$tmp_bin"
+    mv "$tmp_bin" "${INSTALL_DIR}/${SERVICE_NAME}"
+}
+
+release_asset_url() {
+    local asset_name="${SERVICE_NAME}-linux-${GO_ARCH}"
+
+    if [ "$RELEASE_VERSION" = "latest" ]; then
+        echo "https://github.com/${RELEASE_REPO}/releases/latest/download/${asset_name}"
+        return
+    fi
+
+    echo "https://github.com/${RELEASE_REPO}/releases/download/${RELEASE_VERSION}/${asset_name}"
+}
+
+try_download_release_binary() {
+    detect_arch
+
+    local url
+    url="$(release_asset_url)"
+
+    if download_binary "$url" "GitHub Release 预编译二进制（${GO_ARCH}, ${RELEASE_VERSION}）"; then
+        return 0
+    fi
+
+    rm -f "${INSTALL_DIR}/${SERVICE_NAME}.new"
+    return 1
+}
+
+build_from_source() {
+    ensure_source_dependencies
+    prepare_source
+    build_binary_from_source
+}
+
+install_binary() {
+    if [ -n "$DOWNLOAD_URL" ]; then
+        download_binary "$DOWNLOAD_URL" "自定义 phantom-node 二进制"
+        return
+    fi
+
+    if [ "$INSTALL_FROM_SOURCE" = "true" ]; then
+        log_info "[1/7] 已选择源码编译安装。"
+        build_from_source
+        return
+    fi
+
+    if try_download_release_binary; then
+        return
+    fi
+
+    log_warn "GitHub Release 预编译二进制下载失败，自动回退到源码编译。"
+    build_from_source
 }
 
 write_env_file() {
@@ -228,16 +286,7 @@ PANEL_HOST=${PANEL_HOST}
 PANEL_TOKEN=${PANEL_TOKEN}
 NODE_ID=${NODE_ID}
 LISTEN_PORT=${LISTEN_PORT}
-CF_ENABLED=${CF_ENABLED}
 EOF
-
-    if [ "$CF_ENABLED" = "true" ]; then
-        cat >> "$ENV_FILE" <<EOF
-CF_API_TOKEN=${CF_API_TOKEN}
-CF_ZONE_ID=${CF_ZONE_ID}
-CF_RECORD_NAME=${CF_RECORD_NAME}
-EOF
-    fi
 
     chmod 600 "$ENV_FILE"
 }
@@ -363,7 +412,13 @@ print_summary() {
     echo -e "  节点 ID:      ${YELLOW}${NODE_ID}${NC}"
     echo -e "  面板地址:     ${YELLOW}${PANEL_HOST}${NC}"
     echo -e "  监听端口:     ${YELLOW}${LISTEN_PORT}${NC}"
-    echo -e "  Cloudflare:   ${YELLOW}${CF_ENABLED}${NC}"
+    if [ -n "$DOWNLOAD_URL" ]; then
+        echo -e "  安装方式:     ${YELLOW}自定义二进制${NC}"
+    elif [ "$INSTALL_FROM_SOURCE" = "true" ]; then
+        echo -e "  安装方式:     ${YELLOW}源码编译 (${REPO_REF})${NC}"
+    else
+        echo -e "  安装方式:     ${YELLOW}GitHub Release (${RELEASE_VERSION})${NC}"
+    fi
     echo ""
 }
 
@@ -375,14 +430,7 @@ main() {
     print_summary
 
     mkdir -p "$INSTALL_DIR" "$BUILD_ROOT"
-
-    if [ -n "$DOWNLOAD_URL" ]; then
-        download_binary
-    else
-        ensure_go
-        prepare_source
-        build_binary_from_source
-    fi
+    install_binary
 
     write_env_file
     write_service_file

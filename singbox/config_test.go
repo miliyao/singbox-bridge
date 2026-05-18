@@ -1,0 +1,181 @@
+package singbox
+
+import (
+	"encoding/json"
+	"testing"
+	"time"
+
+	C "github.com/sagernet/sing-box/constant"
+	"github.com/sagernet/sing-box/option"
+
+	"phantom-node/panel"
+)
+
+func TestBuildConfigUsesDefaultsAndPrependsSafetyRules(t *testing.T) {
+	nodeConfig := &panel.NodeConfig{
+		Protocol: "vless",
+		ListenIP: "",
+		Network:  "tcp",
+		Flow:     "",
+		TLSSettings: panel.TLSSettings{
+			ServerName: "example.com",
+			PrivateKey: "private-key",
+			ServerPort: "",
+			ShortID:    "abcd",
+		},
+		Routes: json.RawMessage(`[{"domain":["example.com"],"outbound":"direct"}]`),
+	}
+	users := []panel.User{{ID: 1, UUID: "uuid-1"}}
+
+	opts, err := BuildConfig(nodeConfig, users, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086")
+	if err != nil {
+		t.Fatalf("BuildConfig returned error: %v", err)
+	}
+
+	vlessOptions, ok := opts.Inbounds[0].Options.(*option.VLESSInboundOptions)
+	if !ok {
+		t.Fatalf("unexpected inbound options type: %T", opts.Inbounds[0].Options)
+	}
+	if len(vlessOptions.Users) != 1 || vlessOptions.Users[0].Flow != defaultVLESSFlow {
+		t.Fatalf("unexpected inbound users: %#v", vlessOptions.Users)
+	}
+	if !vlessOptions.ListenOptions.ReuseAddr || !vlessOptions.ListenOptions.TCPFastOpen {
+		t.Fatalf("expected reuse_addr and tcp_fast_open to be enabled: %#v", vlessOptions.ListenOptions)
+	}
+	if time.Duration(vlessOptions.ListenOptions.TCPKeepAlive) != defaultTCPKeepAlive {
+		t.Fatalf("unexpected tcp_keep_alive: %v", time.Duration(vlessOptions.ListenOptions.TCPKeepAlive))
+	}
+	if time.Duration(vlessOptions.ListenOptions.TCPKeepAliveInterval) != defaultTCPKeepAliveInterval {
+		t.Fatalf("unexpected tcp_keep_alive_interval: %v", time.Duration(vlessOptions.ListenOptions.TCPKeepAliveInterval))
+	}
+	if !vlessOptions.ListenOptions.SniffEnabled {
+		t.Fatal("expected sniff to be enabled")
+	}
+
+	if opts.Route == nil || len(opts.Route.Rules) != 4 {
+		t.Fatalf("expected 4 route rules, got %#v", opts.Route)
+	}
+	if !opts.Route.AutoDetectInterface {
+		t.Fatal("expected auto_detect_interface to be enabled")
+	}
+	if opts.Route.Final != directOutboundTag {
+		t.Fatalf("expected final route to be %q, got %q", directOutboundTag, opts.Route.Final)
+	}
+	if opts.Route.Rules[0].DefaultOptions.Protocol[0] != C.ProtocolBitTorrent {
+		t.Fatalf("expected first route to block bittorrent, got %#v", opts.Route.Rules[0])
+	}
+	if opts.Route.Rules[0].DefaultOptions.RuleAction.Action != C.RuleActionTypeReject {
+		t.Fatalf("expected first route action reject, got %#v", opts.Route.Rules[0].DefaultOptions.RuleAction)
+	}
+	if !opts.Route.Rules[1].DefaultOptions.IPIsPrivate {
+		t.Fatalf("expected second route to direct private IPs, got %#v", opts.Route.Rules[1])
+	}
+	if opts.Route.Rules[2].DefaultOptions.RuleSet[0] != geoIPPrivateRuleSetTag {
+		t.Fatalf("expected third route to direct private rule set, got %#v", opts.Route.Rules[2])
+	}
+	if opts.DNS == nil || len(opts.DNS.Rules) != 2 {
+		t.Fatalf("expected 2 dns reject rules, got %#v", opts.DNS)
+	}
+	if opts.DNS.Rules[0].DefaultOptions.RuleSet[0] != geositeAdsRuleSetTag {
+		t.Fatalf("expected first dns rule to reject ads, got %#v", opts.DNS.Rules[0])
+	}
+	if opts.Experimental == nil || opts.Experimental.V2RayAPI == nil || opts.Experimental.V2RayAPI.Listen != "127.0.0.1:10085" {
+		t.Fatalf("unexpected stats listen addr: %#v", opts.Experimental)
+	}
+	if opts.Experimental.ClashAPI == nil || opts.Experimental.ClashAPI.ExternalController != "127.0.0.1:10086" {
+		t.Fatalf("unexpected clash api listen addr: %#v", opts.Experimental)
+	}
+}
+
+func TestBuildConfigRejectsUnsupportedNetwork(t *testing.T) {
+	nodeConfig := &panel.NodeConfig{
+		Protocol: "vless",
+		Network:  "ws",
+		TLSSettings: panel.TLSSettings{
+			ServerName: "example.com",
+			PrivateKey: "private-key",
+		},
+	}
+
+	if _, err := BuildConfig(nodeConfig, nil, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086"); err == nil {
+		t.Fatal("expected unsupported network error")
+	}
+}
+
+func TestBuildConfigAcceptsSpeedLimit(t *testing.T) {
+	nodeConfig := &panel.NodeConfig{
+		Protocol: "vless",
+		Network:  "tcp",
+		TLSSettings: panel.TLSSettings{
+			ServerName: "example.com",
+			PrivateKey: "private-key",
+		},
+	}
+
+	_, err := BuildConfig(nodeConfig, []panel.User{{ID: 1, UUID: "uuid-1", SpeedLimit: 10}}, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086")
+	if err != nil {
+		t.Fatalf("BuildConfig returned error: %v", err)
+	}
+}
+
+func TestBuildConfigAcceptsRouteObject(t *testing.T) {
+	nodeConfig := &panel.NodeConfig{
+		Protocol: "vless",
+		Network:  "tcp",
+		TLSSettings: panel.TLSSettings{
+			ServerName: "example.com",
+			PrivateKey: "private-key",
+		},
+		Routes: json.RawMessage(`{"rules":[{"domain_suffix":["example.com"],"outbound":"direct"}],"final":"direct"}`),
+	}
+
+	opts, err := BuildConfig(nodeConfig, nil, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086")
+	if err != nil {
+		t.Fatalf("BuildConfig returned error: %v", err)
+	}
+	if opts.Route == nil || opts.Route.Final != "direct" || len(opts.Route.Rules) != 4 {
+		t.Fatalf("unexpected route options: %#v", opts.Route)
+	}
+}
+
+func TestBuildConfigRejectsInvalidRoutePayload(t *testing.T) {
+	nodeConfig := &panel.NodeConfig{
+		Protocol: "vless",
+		Network:  "tcp",
+		TLSSettings: panel.TLSSettings{
+			ServerName: "example.com",
+			PrivateKey: "private-key",
+		},
+		Routes: json.RawMessage(`{"rules":[{"type":"unknown"}]}`),
+	}
+
+	if _, err := BuildConfig(nodeConfig, nil, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086"); err == nil {
+		t.Fatal("expected route decode error")
+	}
+}
+
+func TestBuildConfigConvertsLegacyRouteRules(t *testing.T) {
+	nodeConfig := &panel.NodeConfig{
+		Protocol: "vless",
+		Network:  "tcp",
+		TLSSettings: panel.TLSSettings{
+			ServerName: "example.com",
+			PrivateKey: "private-key",
+		},
+		Routes: json.RawMessage(`[
+			{"type":"field","domain":["example.com"],"outbound":"direct"},
+			{"type":"reject","protocol":["bitTorrent"]}
+		]`),
+	}
+
+	opts, err := BuildConfig(nodeConfig, nil, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086")
+	if err != nil {
+		t.Fatalf("BuildConfig returned error: %v", err)
+	}
+	if opts.Route == nil || len(opts.Route.Rules) != 5 {
+		t.Fatalf("unexpected legacy route conversion: %#v", opts.Route)
+	}
+	if opts.Route.Final != "direct" {
+		t.Fatalf("unexpected legacy route final: %q", opts.Route.Final)
+	}
+}

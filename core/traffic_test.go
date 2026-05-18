@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -60,6 +62,7 @@ func TestTrafficReporterBuffersFailedPushAndRetries(t *testing.T) {
 		},
 		&fakePusher{errs: []error{errors.New("push failed"), nil}},
 		zap.NewNop(),
+		"",
 	)
 
 	reporter.Report(context.Background())
@@ -89,6 +92,7 @@ func TestTrafficReporterMergesBufferedAndFreshTraffic(t *testing.T) {
 		},
 		pusher,
 		zap.NewNop(),
+		"",
 	)
 
 	reporter.Report(context.Background())
@@ -104,5 +108,113 @@ func TestTrafficReporterMergesBufferedAndFreshTraffic(t *testing.T) {
 	}
 	if !reflect.DeepEqual(pusher.payloads[1], want) {
 		t.Fatalf("unexpected merged payload: got %#v want %#v", pusher.payloads[1], want)
+	}
+}
+
+func TestTrafficReporterPersistsBufferedTraffic(t *testing.T) {
+	stateFile := filepath.Join(t.TempDir(), "pending.json")
+	reporter := NewTrafficReporter(
+		&fakeCollector{
+			responses: []collectResponse{
+				{traffic: []singbox.UserTraffic{{UserID: 7, Upload: 10, Download: 20}}},
+			},
+		},
+		&fakePusher{errs: []error{errors.New("push failed")}},
+		zap.NewNop(),
+		stateFile,
+	)
+
+	reporter.Report(context.Background())
+
+	if _, err := os.Stat(stateFile); err != nil {
+		t.Fatalf("expected state file to exist: %v", err)
+	}
+
+	restored := NewTrafficReporter(&fakeCollector{}, &fakePusher{}, zap.NewNop(), stateFile)
+	if got := restored.pending[7]; got.Upload != 10 || got.Download != 20 {
+		t.Fatalf("unexpected restored pending data: %#v", restored.pending)
+	}
+}
+
+func TestTrafficReporterClearsPersistedTrafficAfterSuccess(t *testing.T) {
+	stateFile := filepath.Join(t.TempDir(), "pending.json")
+	if err := os.WriteFile(stateFile, []byte(`[{"uid":1,"upload":5,"download":6}]`), 0o600); err != nil {
+		t.Fatalf("failed to seed state file: %v", err)
+	}
+
+	reporter := NewTrafficReporter(
+		&fakeCollector{},
+		&fakePusher{},
+		zap.NewNop(),
+		stateFile,
+	)
+
+	reporter.Report(context.Background())
+
+	if _, err := os.Stat(stateFile); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected state file to be removed, got err=%v", err)
+	}
+}
+
+func TestTrafficReporterBacksUpCorruptPersistedTraffic(t *testing.T) {
+	stateFile := filepath.Join(t.TempDir(), "pending.json")
+	if err := os.WriteFile(stateFile, []byte(`not-json`), 0o600); err != nil {
+		t.Fatalf("failed to seed state file: %v", err)
+	}
+
+	reporter := NewTrafficReporter(&fakeCollector{}, &fakePusher{}, zap.NewNop(), stateFile)
+	if len(reporter.pending) != 0 {
+		t.Fatalf("expected no pending data from corrupt file, got %#v", reporter.pending)
+	}
+	if _, err := os.Stat(stateFile + ".corrupt"); err != nil {
+		t.Fatalf("expected corrupt backup file to exist: %v", err)
+	}
+}
+
+func TestTrafficReporterLimitsPendingUsers(t *testing.T) {
+	reporter := NewTrafficReporterWithLimit(
+		&fakeCollector{
+			responses: []collectResponse{
+				{traffic: []singbox.UserTraffic{
+					{UserID: 1, Upload: 1},
+					{UserID: 2, Upload: 2},
+					{UserID: 3, Upload: 3},
+				}},
+			},
+		},
+		&fakePusher{errs: []error{errors.New("push failed")}},
+		zap.NewNop(),
+		"",
+		2,
+	)
+
+	reporter.Report(context.Background())
+
+	if len(reporter.pending) != 2 {
+		t.Fatalf("expected 2 pending users, got %#v", reporter.pending)
+	}
+	if _, ok := reporter.pending[1]; ok {
+		t.Fatalf("expected oldest uid to be dropped, got %#v", reporter.pending)
+	}
+}
+
+func TestTrafficReporterSnapshotKeepsCollectErrorOnEmptyPayload(t *testing.T) {
+	reporter := NewTrafficReporter(
+		&fakeCollector{
+			responses: []collectResponse{{err: errors.New("stats unavailable")}},
+		},
+		&fakePusher{},
+		zap.NewNop(),
+		"",
+	)
+
+	reporter.Report(context.Background())
+	snapshot := reporter.Snapshot()
+
+	if snapshot.LastReportOK {
+		t.Fatalf("expected failed report snapshot, got %#v", snapshot)
+	}
+	if snapshot.LastReportError != "stats unavailable" {
+		t.Fatalf("unexpected report error: %#v", snapshot)
 	}
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -32,6 +33,23 @@ func main() {
 	defer func() {
 		_ = logger.Sync()
 	}()
+
+	if len(os.Args) > 1 && os.Args[1] == "doctor" {
+		doctorCtx, doctorCancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer doctorCancel()
+
+		result := core.RunDoctor(doctorCtx, cfg, logger)
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		if err := encoder.Encode(result); err != nil {
+			logger.Error("failed to encode doctor result", zap.Error(err))
+			os.Exit(1)
+		}
+		if !result.OK {
+			os.Exit(1)
+		}
+		return
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

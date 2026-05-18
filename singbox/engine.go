@@ -8,6 +8,7 @@ import (
 	"phantom-node/panel"
 
 	box "github.com/sagernet/sing-box"
+	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/adapter/endpoint"
 	"github.com/sagernet/sing-box/adapter/inbound"
 	"github.com/sagernet/sing-box/adapter/outbound"
@@ -18,21 +19,34 @@ import (
 	_ "github.com/sagernet/sing-box/experimental/v2rayapi"
 	"github.com/sagernet/sing-box/protocol/direct"
 	"github.com/sagernet/sing-box/protocol/vless"
+	"github.com/sagernet/sing/service"
+	"go.uber.org/zap"
 )
 
-// Engine 管理内嵌 sing-box 实例的生命周期。
+// Engine manages the embedded sing-box instance lifecycle.
 type Engine struct {
-	mu            sync.Mutex
-	instance      *box.Box
-	users         []panel.User
-	stats         *StatsClient
-	currentConfig *panel.NodeConfig
-	listenPort    int
-	logLevel      string
+	mu                  sync.Mutex
+	instance            *box.Box
+	users               []panel.User
+	stats               *StatsClient
+	currentConfig       *panel.NodeConfig
+	listenPort          int
+	logLevel            string
+	statsListenAddr     string
+	clashAPIListenAddr string
+	limiter             ConnectionLimiter
+	rates               UserRateProvider
+	logger              *zap.Logger
 }
 
-func NewEngine() *Engine {
-	return &Engine{}
+func NewEngine(statsListenAddr, clashAPIListenAddr string, limiter ConnectionLimiter, rates UserRateProvider, logger *zap.Logger) *Engine {
+	return &Engine{
+		statsListenAddr:    statsListenAddr,
+		clashAPIListenAddr: clashAPIListenAddr,
+		limiter:            limiter,
+		rates:              rates,
+		logger:             logger,
+	}
 }
 
 func createContext() context.Context {
@@ -63,13 +77,13 @@ func (e *Engine) Start(nodeConfig *panel.NodeConfig, users []panel.User, listenP
 	}
 
 	if err := instance.Start(); err != nil {
-		instance.Close()
-		return fmt.Errorf("启动 sing-box 失败: %w", err)
+		_ = instance.Close()
+		return fmt.Errorf("failed to start sing-box: %w", err)
 	}
 
-	statsClient, statsErr := connectStatsClient()
+	statsClient, statsErr := connectStatsClient(e.statsListenAddr)
 	if statsErr != nil {
-		fmt.Printf("警告: 连接 sing-box Stats 接口失败: %v\n", statsErr)
+		fmt.Printf("warning: failed to connect to sing-box stats API: %v\n", statsErr)
 	}
 
 	e.mu.Lock()
@@ -87,7 +101,7 @@ func (e *Engine) Start(nodeConfig *panel.NodeConfig, users []panel.User, listenP
 func (e *Engine) ReloadUsers(nodeConfig *panel.NodeConfig, newUsers []panel.User, listenPort int, logLevel string) error {
 	newInstance, err := e.createBox(nodeConfig, newUsers, listenPort, logLevel)
 	if err != nil {
-		return fmt.Errorf("构建新的 sing-box 实例失败: %w", err)
+		return fmt.Errorf("failed to build new sing-box instance: %w", err)
 	}
 
 	e.mu.Lock()
@@ -113,15 +127,15 @@ func (e *Engine) ReloadUsers(nodeConfig *panel.NodeConfig, newUsers []panel.User
 
 		rollbackErr := e.restorePreviousInstance(oldConfig, oldUsers, oldListenPort, oldLogLevel)
 		if rollbackErr != nil {
-			return fmt.Errorf("启动新的 sing-box 实例失败: %w；回滚也失败: %v", err, rollbackErr)
+			return fmt.Errorf("failed to start new sing-box instance: %w; rollback also failed: %v", err, rollbackErr)
 		}
 
-		return fmt.Errorf("启动新的 sing-box 实例失败，已回滚到旧配置: %w", err)
+		return fmt.Errorf("failed to start new sing-box instance, rolled back to the previous config: %w", err)
 	}
 
-	newStats, statsErr := connectStatsClient()
+	newStats, statsErr := connectStatsClient(e.statsListenAddr)
 	if statsErr != nil {
-		fmt.Printf("警告: 热重载后连接 sing-box Stats 接口失败: %v\n", statsErr)
+		fmt.Printf("warning: failed to reconnect to sing-box stats API after reload: %v\n", statsErr)
 	}
 
 	e.mu.Lock()
@@ -137,9 +151,9 @@ func (e *Engine) ReloadUsers(nodeConfig *panel.NodeConfig, newUsers []panel.User
 }
 
 func (e *Engine) createBox(nodeConfig *panel.NodeConfig, users []panel.User, listenPort int, logLevel string) (*box.Box, error) {
-	opts, err := BuildConfig(nodeConfig, users, listenPort, logLevel)
+	opts, err := BuildConfig(nodeConfig, users, listenPort, logLevel, e.statsListenAddr, e.clashAPIListenAddr)
 	if err != nil {
-		return nil, fmt.Errorf("生成 sing-box 配置失败: %w", err)
+		return nil, fmt.Errorf("failed to generate sing-box config: %w", err)
 	}
 
 	ctx := createContext()
@@ -148,8 +162,14 @@ func (e *Engine) createBox(nodeConfig *panel.NodeConfig, users []panel.User, lis
 		Options: opts,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("创建 sing-box 实例失败: %w", err)
+		return nil, fmt.Errorf("failed to create sing-box instance: %w", err)
 	}
+
+	router := service.FromContext[adapter.Router](ctx)
+	if router != nil && e.limiter != nil {
+		router.AppendTracker(newLimiterTracker(e.limiter, e.rates, e.logger))
+	}
+
 	return instance, nil
 }
 
@@ -187,6 +207,7 @@ func (e *Engine) GetUsers() []panel.User {
 	return cloneUsers(e.users)
 }
 
+
 func (e *Engine) Close() error {
 	e.mu.Lock()
 	instance := e.instance
@@ -210,22 +231,22 @@ func (e *Engine) Close() error {
 
 func (e *Engine) restorePreviousInstance(nodeConfig *panel.NodeConfig, users []panel.User, listenPort int, logLevel string) error {
 	if nodeConfig == nil {
-		return fmt.Errorf("旧实例配置不存在，无法回滚")
+		return fmt.Errorf("previous config is missing, cannot roll back")
 	}
 
 	instance, err := e.createBox(nodeConfig, users, listenPort, logLevel)
 	if err != nil {
-		return fmt.Errorf("重建旧的 sing-box 实例失败: %w", err)
+		return fmt.Errorf("failed to rebuild previous sing-box instance: %w", err)
 	}
 
 	if err := instance.Start(); err != nil {
 		_ = instance.Close()
-		return fmt.Errorf("重新启动旧的 sing-box 实例失败: %w", err)
+		return fmt.Errorf("failed to restart previous sing-box instance: %w", err)
 	}
 
-	statsClient, statsErr := connectStatsClient()
+	statsClient, statsErr := connectStatsClient(e.statsListenAddr)
 	if statsErr != nil {
-		fmt.Printf("警告: 回滚后连接 sing-box Stats 接口失败: %v\n", statsErr)
+		fmt.Printf("warning: failed to reconnect to sing-box stats API after rollback: %v\n", statsErr)
 	}
 
 	e.mu.Lock()
@@ -240,8 +261,8 @@ func (e *Engine) restorePreviousInstance(nodeConfig *panel.NodeConfig, users []p
 	return nil
 }
 
-func connectStatsClient() (*StatsClient, error) {
-	return NewStatsClient(StatsListenAddr)
+func connectStatsClient(listenAddr string) (*StatsClient, error) {
+	return NewStatsClient(listenAddr)
 }
 
 func cloneUsers(users []panel.User) []panel.User {

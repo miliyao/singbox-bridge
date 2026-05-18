@@ -14,6 +14,10 @@ dist/
 
 # Coverage
 coverage.out
+.gocache/
+.gotmp/
+gcm-diagnose.log
+phantom-node-linux-*-test
 
 # Secrets and local env files
 .env

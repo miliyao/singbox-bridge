@@ -1,34 +1,58 @@
 package singbox
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/netip"
 	"strconv"
 	"strings"
+	"time"
 
-	"phantom-node/panel"
-
+	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing/common/json/badoption"
+
+	"phantom-node/panel"
 )
 
 const (
-	StatsListenAddr               = "127.0.0.1:10085"
-	defaultRealityDestPort uint16 = 443
-	defaultVLESSFlow              = "xtls-rprx-vision"
+	defaultRealityDestPort                uint16 = 443
+	defaultVLESSFlow                             = "xtls-rprx-vision"
+	inboundTag                                   = "vless-in"
+	directOutboundTag                            = "direct"
+	localDNSOutboundTag                          = "local-dns"
+	geoIPRuleSetTag                              = "geoip-cn"
+	geositeRuleSetTag                            = "geosite-cn"
+	geoIPPrivateRuleSetTag                       = "geoip-private"
+	geositeAdsRuleSetTag                         = "geosite-category-ads-all"
+	geositeTrackerRuleSetTag                     = "geosite-category-public-tracker"
+	defaultSniffTimeout                          = time.Second
+	defaultTCPKeepAlive                          = 5 * time.Minute
+	defaultTCPKeepAliveInterval                  = 75 * time.Second
+	defaultRuleSetUpdateInterval                 = 24 * time.Hour
+	defaultRemoteGeoIPRuleSetURL                 = "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs"
+	defaultRemoteGeositeRuleSetURL               = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs"
+	defaultRemoteGeoIPPrivateRuleSetURL          = "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-private.srs"
+	defaultRemoteGeositeAdsRuleSetURL            = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs"
+	defaultRemoteGeositeTrackerRuleSetURL        = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-public-tracker.srs"
 )
 
-// BuildConfig 将 Xboard 下发的节点信息转换成 sing-box 运行配置。
-// 当前实现固定为 VLESS + REALITY + XTLS Vision 这一条运行链路。
-func BuildConfig(nodeConfig *panel.NodeConfig, users []panel.User, listenPort int, logLevel string) (option.Options, error) {
+// BuildConfig translates the Xboard node payload into a sing-box runtime config.
+func BuildConfig(nodeConfig *panel.NodeConfig, users []panel.User, listenPort int, logLevel, statsListenAddr, clashAPIListenAddr string) (option.Options, error) {
 	if nodeConfig == nil {
-		return option.Options{}, fmt.Errorf("Xboard 节点配置不能为空")
+		return option.Options{}, fmt.Errorf("xboard node config must not be nil")
+	}
+	if strings.TrimSpace(nodeConfig.Protocol) != "" && !strings.EqualFold(strings.TrimSpace(nodeConfig.Protocol), "vless") {
+		return option.Options{}, fmt.Errorf("unsupported protocol %q, only vless is supported", nodeConfig.Protocol)
+	}
+	if err := validateSupportedNetwork(nodeConfig.Network); err != nil {
+		return option.Options{}, err
 	}
 	if strings.TrimSpace(nodeConfig.TLSSettings.ServerName) == "" {
-		return option.Options{}, fmt.Errorf("Xboard 节点缺少 tls_settings.server_name")
+		return option.Options{}, fmt.Errorf("missing tls_settings.server_name")
 	}
 	if strings.TrimSpace(nodeConfig.TLSSettings.PrivateKey) == "" {
-		return option.Options{}, fmt.Errorf("Xboard 节点缺少 tls_settings.private_key")
+		return option.Options{}, fmt.Errorf("missing tls_settings.private_key")
 	}
 
 	flow := strings.TrimSpace(nodeConfig.Flow)
@@ -45,6 +69,12 @@ func BuildConfig(nodeConfig *panel.NodeConfig, users []panel.User, listenPort in
 	if err != nil {
 		return option.Options{}, err
 	}
+
+	routes, err := parseRouteOptions(nodeConfig.Routes)
+	if err != nil {
+		return option.Options{}, err
+	}
+	routes = mergeDefaultRouteOptions(routes)
 
 	sbUsers := make([]option.VLESSUser, 0, len(users))
 	userNames := make([]string, 0, len(users))
@@ -66,11 +96,20 @@ func BuildConfig(nodeConfig *panel.NodeConfig, users []panel.User, listenPort in
 		Inbounds: []option.Inbound{
 			{
 				Type: "vless",
-				Tag:  "vless-in",
+				Tag:  inboundTag,
 				Options: &option.VLESSInboundOptions{
 					ListenOptions: option.ListenOptions{
-						Listen:     (*badoption.Addr)(&listenAddr),
-						ListenPort: uint16(listenPort),
+						Listen:               (*badoption.Addr)(&listenAddr),
+						ListenPort:           uint16(listenPort),
+						ReuseAddr:            true,
+						TCPFastOpen:          true,
+						TCPKeepAlive:         badoption.Duration(defaultTCPKeepAlive),
+						TCPKeepAliveInterval: badoption.Duration(defaultTCPKeepAliveInterval),
+						InboundOptions: option.InboundOptions{
+							SniffEnabled:             true,
+							SniffOverrideDestination: false,
+							SniffTimeout:             badoption.Duration(defaultSniffTimeout),
+						},
 					},
 					Users: sbUsers,
 					InboundTLSOptionsContainer: option.InboundTLSOptionsContainer{
@@ -86,7 +125,7 @@ func BuildConfig(nodeConfig *panel.NodeConfig, users []panel.User, listenPort in
 									},
 								},
 								PrivateKey: nodeConfig.TLSSettings.PrivateKey,
-								ShortID:    badoption.Listable[string]{nodeConfig.TLSSettings.ShortID},
+								ShortID:    badoption.Listable[string](nodeConfig.TLSSettings.ShortIDList()),
 							},
 						},
 					},
@@ -96,15 +135,23 @@ func BuildConfig(nodeConfig *panel.NodeConfig, users []panel.User, listenPort in
 		Outbounds: []option.Outbound{
 			{
 				Type: "direct",
-				Tag:  "direct",
+				Tag:  directOutboundTag,
 			},
 		},
+		Route: routes,
+		DNS:   buildDefaultDNSOptions(),
 		Experimental: &option.ExperimentalOptions{
+			CacheFile: &option.CacheFileOptions{
+				Enabled: true,
+			},
+			ClashAPI: &option.ClashAPIOptions{
+				ExternalController: clashAPIListenAddr,
+			},
 			V2RayAPI: &option.V2RayAPIOptions{
-				Listen: StatsListenAddr,
+				Listen: statsListenAddr,
 				Stats: &option.V2RayStatsServiceOptions{
 					Enabled:  true,
-					Inbounds: []string{"vless-in"},
+					Inbounds: []string{inboundTag},
 					Users:    userNames,
 				},
 			},
@@ -114,6 +161,199 @@ func BuildConfig(nodeConfig *panel.NodeConfig, users []panel.User, listenPort in
 	return opts, nil
 }
 
+func validateSupportedNetwork(raw string) error {
+	network := strings.ToLower(strings.TrimSpace(raw))
+	switch network {
+	case "", "tcp":
+		return nil
+	default:
+		return fmt.Errorf("unsupported network %q, only tcp is currently supported", raw)
+	}
+}
+
+func parseRouteOptions(raw json.RawMessage) (*option.RouteOptions, error) {
+	if len(raw) == 0 || strings.TrimSpace(string(raw)) == "" || strings.TrimSpace(string(raw)) == "null" {
+		return nil, nil
+	}
+
+	var route option.RouteOptions
+	if err := json.Unmarshal(raw, &route); err == nil {
+		return &route, nil
+	}
+
+	var rules []option.Rule
+	if err := json.Unmarshal(raw, &rules); err == nil {
+		return &option.RouteOptions{Rules: rules}, nil
+	}
+
+	var legacyRules []legacyRouteRule
+	if err := json.Unmarshal(raw, &legacyRules); err == nil {
+		if route := convertLegacyRouteRules(legacyRules); route != nil {
+			return route, nil
+		}
+	}
+
+	return nil, fmt.Errorf("failed to decode xboard routes into sing-box route options")
+}
+
+func mergeDefaultRouteOptions(route *option.RouteOptions) *option.RouteOptions {
+	if route == nil {
+		route = &option.RouteOptions{}
+	}
+
+	route.AutoDetectInterface = true
+
+	mergedRules := make([]option.Rule, 0, len(route.Rules)+2)
+	mergedRules = append(mergedRules, defaultSafetyRules()...)
+	mergedRules = append(mergedRules, route.Rules...)
+	route.Rules = mergedRules
+
+	route.RuleSet = append(route.RuleSet, defaultRemoteRuleSets()...)
+
+	if route.Final == "" {
+		route.Final = directOutboundTag
+	}
+
+	return route
+}
+
+func defaultSafetyRules() []option.Rule {
+	return []option.Rule{
+		rejectRule(option.RawDefaultRule{
+			Protocol: badoption.Listable[string]{C.ProtocolBitTorrent},
+		}),
+		routeRule(option.RawDefaultRule{
+			IPIsPrivate: true,
+		}),
+		routeRuleSetDirect(geoIPPrivateRuleSetTag),
+	}
+}
+
+func routeRule(raw option.RawDefaultRule) option.Rule {
+	return option.Rule{
+		Type: C.RuleTypeDefault,
+		DefaultOptions: option.DefaultRule{
+			RawDefaultRule: raw,
+			RuleAction: option.RuleAction{
+				Action: C.RuleActionTypeRoute,
+				RouteOptions: option.RouteActionOptions{
+					Outbound: directOutboundTag,
+				},
+			},
+		},
+	}
+}
+
+func routeRuleSetDirect(tag string) option.Rule {
+	return option.Rule{
+		Type: C.RuleTypeDefault,
+		DefaultOptions: option.DefaultRule{
+			RawDefaultRule: option.RawDefaultRule{
+				RuleSet: badoption.Listable[string]{tag},
+			},
+			RuleAction: option.RuleAction{
+				Action: C.RuleActionTypeRoute,
+				RouteOptions: option.RouteActionOptions{
+					Outbound: directOutboundTag,
+				},
+			},
+		},
+	}
+}
+
+func defaultRemoteRuleSets() []option.RuleSet {
+	return []option.RuleSet{
+		{
+			Type:   "remote",
+			Tag:    geositeAdsRuleSetTag,
+			Format: "binary",
+			RemoteOptions: option.RemoteRuleSet{
+				URL:            defaultRemoteGeositeAdsRuleSetURL,
+				UpdateInterval: badoption.Duration(defaultRuleSetUpdateInterval),
+			},
+		},
+		{
+			Type:   "remote",
+			Tag:    geositeTrackerRuleSetTag,
+			Format: "binary",
+			RemoteOptions: option.RemoteRuleSet{
+				URL:            defaultRemoteGeositeTrackerRuleSetURL,
+				UpdateInterval: badoption.Duration(defaultRuleSetUpdateInterval),
+			},
+		},
+		{
+			Type:   "remote",
+			Tag:    geoIPPrivateRuleSetTag,
+			Format: "binary",
+			RemoteOptions: option.RemoteRuleSet{
+				URL:            defaultRemoteGeoIPPrivateRuleSetURL,
+				UpdateInterval: badoption.Duration(defaultRuleSetUpdateInterval),
+			},
+		},
+	}
+}
+
+func buildDefaultDNSOptions() *option.DNSOptions {
+	return &option.DNSOptions{
+		RawDNSOptions: option.RawDNSOptions{
+			Servers: []option.DNSServerOptions{
+				{
+					Type: "local",
+					Tag:  localDNSOutboundTag,
+					Options: &option.LocalDNSServerOptions{
+						PreferGo: true,
+					},
+				},
+			},
+			Rules: []option.DNSRule{
+				dnsRuleSetRejectRule(geositeAdsRuleSetTag),
+				dnsRuleSetRejectRule(geositeTrackerRuleSetTag),
+			},
+			Final: localDNSOutboundTag,
+		},
+	}
+}
+
+func ruleSetRejectRule(tag string) option.Rule {
+	return option.Rule{
+		Type: C.RuleTypeDefault,
+		DefaultOptions: option.DefaultRule{
+			RawDefaultRule: option.RawDefaultRule{
+				RuleSet: badoption.Listable[string]{tag},
+			},
+			RuleAction: option.RuleAction{
+				Action: C.RuleActionTypeReject,
+			},
+		},
+	}
+}
+
+func dnsRuleSetRejectRule(tag string) option.DNSRule {
+	return option.DNSRule{
+		Type: C.RuleTypeDefault,
+		DefaultOptions: option.DefaultDNSRule{
+			RawDefaultDNSRule: option.RawDefaultDNSRule{
+				RuleSet: badoption.Listable[string]{tag},
+			},
+			DNSRuleAction: option.DNSRuleAction{
+				Action: C.RuleActionTypeReject,
+			},
+		},
+	}
+}
+
+func rejectRule(raw option.RawDefaultRule) option.Rule {
+	return option.Rule{
+		Type: C.RuleTypeDefault,
+		DefaultOptions: option.DefaultRule{
+			RawDefaultRule: raw,
+			RuleAction: option.RuleAction{
+				Action: C.RuleActionTypeReject,
+			},
+		},
+	}
+}
+
 func parseRealityDestPort(raw string) (uint16, error) {
 	if strings.TrimSpace(raw) == "" {
 		return defaultRealityDestPort, nil
@@ -121,10 +361,10 @@ func parseRealityDestPort(raw string) (uint16, error) {
 
 	port, err := strconv.Atoi(raw)
 	if err != nil {
-		return 0, fmt.Errorf("Xboard 下发的 tls_settings.server_port 无法解析: %q", raw)
+		return 0, fmt.Errorf("invalid tls_settings.server_port %q", raw)
 	}
 	if port < 1 || port > 65535 {
-		return 0, fmt.Errorf("Xboard 下发的 tls_settings.server_port 超出范围: %d", port)
+		return 0, fmt.Errorf("tls_settings.server_port out of range: %d", port)
 	}
 	return uint16(port), nil
 }
@@ -136,7 +376,89 @@ func resolveListenAddr(raw string) (netip.Addr, error) {
 
 	addr, err := netip.ParseAddr(strings.TrimSpace(raw))
 	if err != nil {
-		return netip.Addr{}, fmt.Errorf("Xboard 下发的 listen_ip 不合法: %q", raw)
+		return netip.Addr{}, fmt.Errorf("invalid listen_ip %q", raw)
 	}
 	return addr, nil
+}
+
+type legacyRouteRule struct {
+	Type          string   `json:"type"`
+	Protocol      []string `json:"protocol"`
+	Domain        []string `json:"domain"`
+	DomainSuffix  []string `json:"domain_suffix"`
+	DomainKeyword []string `json:"domain_keyword"`
+	DomainRegex   []string `json:"domain_regex"`
+	IPCIDR        []string `json:"ip_cidr"`
+	GeoIP         []string `json:"geoip"`
+	Network       []string `json:"network"`
+	Port          []uint16 `json:"port"`
+	Outbound      string   `json:"outbound"`
+	Final         string   `json:"final"`
+}
+
+func convertLegacyRouteRules(rules []legacyRouteRule) *option.RouteOptions {
+	if len(rules) == 0 {
+		return nil
+	}
+
+	route := &option.RouteOptions{}
+	for _, item := range rules {
+		if route.Final == "" && strings.TrimSpace(item.Final) != "" {
+			route.Final = strings.TrimSpace(item.Final)
+		}
+
+		rule := option.Rule{}
+		switch strings.ToLower(strings.TrimSpace(item.Type)) {
+		case "", "field":
+			rule.Type = C.RuleTypeDefault
+			rule.DefaultOptions = option.DefaultRule{
+				RawDefaultRule: option.RawDefaultRule{
+					Protocol:      toList(item.Protocol),
+					Domain:        toList(item.Domain),
+					DomainSuffix:  toList(item.DomainSuffix),
+					DomainKeyword: toList(item.DomainKeyword),
+					DomainRegex:   toList(item.DomainRegex),
+					IPCIDR:        toList(item.IPCIDR),
+					GeoIP:         toList(item.GeoIP),
+					Network:       toList(item.Network),
+					Port:          toList(item.Port),
+				},
+			}
+		case "reject":
+			rule.Type = C.RuleTypeDefault
+			rule.DefaultOptions = option.DefaultRule{
+				RawDefaultRule: option.RawDefaultRule{
+					Protocol: toList(item.Protocol),
+					Domain:   toList(item.Domain),
+				},
+				RuleAction: option.RuleAction{Action: C.RuleActionTypeReject},
+			}
+		default:
+			continue
+		}
+
+		if strings.TrimSpace(item.Outbound) != "" {
+			if route.Final == "" {
+				route.Final = strings.TrimSpace(item.Outbound)
+			}
+		}
+		route.Rules = append(route.Rules, rule)
+	}
+
+	if len(route.Rules) == 0 && route.Final == "" {
+		return nil
+	}
+	if route.Final == "" {
+		route.Final = directOutboundTag
+	}
+	return route
+}
+
+func toList[T any](values []T) badoption.Listable[T] {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(badoption.Listable[T], len(values))
+	copy(out, values)
+	return out
 }

@@ -52,7 +52,7 @@ func TestBuildConfigUsesDefaultsAndPrependsSafetyRules(t *testing.T) {
 		t.Fatal("expected sniff to be enabled")
 	}
 
-	if opts.Route == nil || len(opts.Route.Rules) != 4 {
+	if opts.Route == nil || len(opts.Route.Rules) != 3 {
 		t.Fatalf("expected 4 route rules, got %#v", opts.Route)
 	}
 	if !opts.Route.AutoDetectInterface {
@@ -70,14 +70,11 @@ func TestBuildConfigUsesDefaultsAndPrependsSafetyRules(t *testing.T) {
 	if !opts.Route.Rules[1].DefaultOptions.IPIsPrivate {
 		t.Fatalf("expected second route to direct private IPs, got %#v", opts.Route.Rules[1])
 	}
-	if opts.Route.Rules[2].DefaultOptions.RuleSet[0] != geoIPPrivateRuleSetTag {
-		t.Fatalf("expected third route to direct private rule set, got %#v", opts.Route.Rules[2])
+	if opts.DNS == nil || len(opts.DNS.Rules) != 1 {
+		t.Fatalf("expected 1 dns reject rule, got %#v", opts.DNS)
 	}
-	if opts.DNS == nil || len(opts.DNS.Rules) != 2 {
-		t.Fatalf("expected 2 dns reject rules, got %#v", opts.DNS)
-	}
-	if opts.DNS.Rules[0].DefaultOptions.RuleSet[0] != geositeAdsRuleSetTag {
-		t.Fatalf("expected first dns rule to reject ads, got %#v", opts.DNS.Rules[0])
+	if len(opts.DNS.Rules[0].DefaultOptions.DomainKeyword) == 0 {
+		t.Fatalf("expected dns rule to contain domain keywords, got %#v", opts.DNS.Rules[0])
 	}
 	if opts.Experimental == nil || opts.Experimental.V2RayAPI == nil || opts.Experimental.V2RayAPI.Listen != "127.0.0.1:10085" {
 		t.Fatalf("unexpected stats listen addr: %#v", opts.Experimental)
@@ -152,7 +149,7 @@ func TestBuildConfigAcceptsRouteObject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildConfig returned error: %v", err)
 	}
-	if opts.Route == nil || opts.Route.Final != "direct" || len(opts.Route.Rules) != 4 {
+	if opts.Route == nil || opts.Route.Final != "direct" || len(opts.Route.Rules) != 3 {
 		t.Fatalf("unexpected route options: %#v", opts.Route)
 	}
 }
@@ -191,7 +188,7 @@ func TestBuildConfigConvertsLegacyRouteRules(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildConfig returned error: %v", err)
 	}
-	if opts.Route == nil || len(opts.Route.Rules) != 5 {
+	if opts.Route == nil || len(opts.Route.Rules) != 4 {
 		t.Fatalf("unexpected legacy route conversion: %#v", opts.Route)
 	}
 	if opts.Route.Final != "direct" {

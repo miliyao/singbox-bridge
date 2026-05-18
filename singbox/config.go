@@ -16,25 +16,14 @@ import (
 )
 
 const (
-	defaultRealityDestPort                uint16 = 443
-	defaultVLESSFlow                             = "xtls-rprx-vision"
-	inboundTag                                   = "vless-in"
-	directOutboundTag                            = "direct"
-	localDNSOutboundTag                          = "local-dns"
-	geoIPRuleSetTag                              = "geoip-cn"
-	geositeRuleSetTag                            = "geosite-cn"
-	geoIPPrivateRuleSetTag                       = "geoip-private"
-	geositeAdsRuleSetTag                         = "geosite-category-ads-all"
-	geositeTrackerRuleSetTag                     = "geosite-category-public-tracker"
-	defaultSniffTimeout                          = time.Second
-	defaultTCPKeepAlive                          = 5 * time.Minute
-	defaultTCPKeepAliveInterval                  = 75 * time.Second
-	defaultRuleSetUpdateInterval                 = 24 * time.Hour
-	defaultRemoteGeoIPRuleSetURL                 = "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs"
-	defaultRemoteGeositeRuleSetURL               = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs"
-	defaultRemoteGeoIPPrivateRuleSetURL          = "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-private.srs"
-	defaultRemoteGeositeAdsRuleSetURL            = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs"
-	defaultRemoteGeositeTrackerRuleSetURL        = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-public-tracker.srs"
+	defaultRealityDestPort      uint16 = 443
+	defaultVLESSFlow                   = "xtls-rprx-vision"
+	inboundTag                         = "vless-in"
+	directOutboundTag                  = "direct"
+	localDNSOutboundTag                = "local-dns"
+	defaultSniffTimeout                = time.Second
+	defaultTCPKeepAlive                = 5 * time.Minute
+	defaultTCPKeepAliveInterval        = 75 * time.Second
 )
 
 // BuildConfig translates the Xboard node payload into a sing-box runtime config.
@@ -205,12 +194,10 @@ func mergeDefaultRouteOptions(route *option.RouteOptions) *option.RouteOptions {
 
 	route.AutoDetectInterface = true
 
-	mergedRules := make([]option.Rule, 0, len(route.Rules)+2)
+	mergedRules := make([]option.Rule, 0, len(route.Rules)+1)
 	mergedRules = append(mergedRules, defaultSafetyRules()...)
 	mergedRules = append(mergedRules, route.Rules...)
 	route.Rules = mergedRules
-
-	route.RuleSet = append(route.RuleSet, defaultRemoteRuleSets()...)
 
 	if route.Final == "" {
 		route.Final = directOutboundTag
@@ -227,7 +214,6 @@ func defaultSafetyRules() []option.Rule {
 		routeRule(option.RawDefaultRule{
 			IPIsPrivate: true,
 		}),
-		routeRuleSetDirect(geoIPPrivateRuleSetTag),
 	}
 }
 
@@ -246,55 +232,6 @@ func routeRule(raw option.RawDefaultRule) option.Rule {
 	}
 }
 
-func routeRuleSetDirect(tag string) option.Rule {
-	return option.Rule{
-		Type: C.RuleTypeDefault,
-		DefaultOptions: option.DefaultRule{
-			RawDefaultRule: option.RawDefaultRule{
-				RuleSet: badoption.Listable[string]{tag},
-			},
-			RuleAction: option.RuleAction{
-				Action: C.RuleActionTypeRoute,
-				RouteOptions: option.RouteActionOptions{
-					Outbound: directOutboundTag,
-				},
-			},
-		},
-	}
-}
-
-func defaultRemoteRuleSets() []option.RuleSet {
-	return []option.RuleSet{
-		{
-			Type:   "remote",
-			Tag:    geositeAdsRuleSetTag,
-			Format: "binary",
-			RemoteOptions: option.RemoteRuleSet{
-				URL:            defaultRemoteGeositeAdsRuleSetURL,
-				UpdateInterval: badoption.Duration(defaultRuleSetUpdateInterval),
-			},
-		},
-		{
-			Type:   "remote",
-			Tag:    geositeTrackerRuleSetTag,
-			Format: "binary",
-			RemoteOptions: option.RemoteRuleSet{
-				URL:            defaultRemoteGeositeTrackerRuleSetURL,
-				UpdateInterval: badoption.Duration(defaultRuleSetUpdateInterval),
-			},
-		},
-		{
-			Type:   "remote",
-			Tag:    geoIPPrivateRuleSetTag,
-			Format: "binary",
-			RemoteOptions: option.RemoteRuleSet{
-				URL:            defaultRemoteGeoIPPrivateRuleSetURL,
-				UpdateInterval: badoption.Duration(defaultRuleSetUpdateInterval),
-			},
-		},
-	}
-}
-
 func buildDefaultDNSOptions() *option.DNSOptions {
 	return &option.DNSOptions{
 		RawDNSOptions: option.RawDNSOptions{
@@ -308,34 +245,19 @@ func buildDefaultDNSOptions() *option.DNSOptions {
 				},
 			},
 			Rules: []option.DNSRule{
-				dnsRuleSetRejectRule(geositeAdsRuleSetTag),
-				dnsRuleSetRejectRule(geositeTrackerRuleSetTag),
+				dnsRuleRejectDomain([]string{"ads", "tracker"}),
 			},
 			Final: localDNSOutboundTag,
 		},
 	}
 }
 
-func ruleSetRejectRule(tag string) option.Rule {
-	return option.Rule{
-		Type: C.RuleTypeDefault,
-		DefaultOptions: option.DefaultRule{
-			RawDefaultRule: option.RawDefaultRule{
-				RuleSet: badoption.Listable[string]{tag},
-			},
-			RuleAction: option.RuleAction{
-				Action: C.RuleActionTypeReject,
-			},
-		},
-	}
-}
-
-func dnsRuleSetRejectRule(tag string) option.DNSRule {
+func dnsRuleRejectDomain(keywords []string) option.DNSRule {
 	return option.DNSRule{
 		Type: C.RuleTypeDefault,
 		DefaultOptions: option.DefaultDNSRule{
 			RawDefaultDNSRule: option.RawDefaultDNSRule{
-				RuleSet: badoption.Listable[string]{tag},
+				DomainKeyword: toList(keywords),
 			},
 			DNSRuleAction: option.DNSRuleAction{
 				Action: C.RuleActionTypeReject,

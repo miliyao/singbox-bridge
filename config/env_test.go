@@ -82,8 +82,8 @@ func TestLoadUsesDefaultsWhenOptionalValuesAreMissing(t *testing.T) {
 	if cfg.TrafficStateFile == "" {
 		t.Fatal("expected default traffic state file to be set")
 	}
-	if cfg.ClashAPIListenAddr == "" {
-		t.Fatal("expected default clash api listen address to be set")
+	if cfg.ClashAPIListenAddr != "" {
+		t.Fatalf("expected clash api to be disabled by default, got %q", cfg.ClashAPIListenAddr)
 	}
 	if cfg.MaxConnPerUser != defaultMaxConnPerUser || cfg.MaxConnPerIP != defaultMaxConnPerIP {
 		t.Fatalf("unexpected default limiter config: %#v", cfg)

@@ -71,7 +71,7 @@
 - `REPORT_INTERVAL=60`
 - `LOG_LEVEL=info`
 - `STATS_LISTEN_ADDR=127.0.0.1:10085`
-- `CLASH_API_LISTEN_ADDR=127.0.0.1:10086`
+- `CLASH_API_LISTEN_ADDR` 默认关闭
 - `STATUS_LISTEN_ADDR=127.0.0.1:10087`
 - `TRAFFIC_PENDING_MAX_USERS=10000`
 
@@ -96,7 +96,7 @@
 - `LOG_LEVEL`：`debug`、`info`、`warn`、`error`
 - `STATS_LISTEN_ADDR`：`sing-box` Stats gRPC 监听地址
 - `STATUS_LISTEN_ADDR`：本地状态 HTTP 监听地址
-- `CLASH_API_LISTEN_ADDR`：`sing-box` Clash API 监听地址
+- `CLASH_API_LISTEN_ADDR`：`sing-box` Clash API 监听地址，留空则不启用
 - `TRAFFIC_STATE_FILE`：流量失败缓冲文件路径
 - `TRAFFIC_PENDING_MAX_USERS`：本地流量缓冲最多保留的用户数
 - `MAX_CONN_PER_USER`：单用户最大并发连接数

@@ -144,9 +144,6 @@ func BuildConfig(nodeConfig *panel.NodeConfig, users []panel.User, listenPort in
 			CacheFile: &option.CacheFileOptions{
 				Enabled: true,
 			},
-			ClashAPI: &option.ClashAPIOptions{
-				ExternalController: clashAPIListenAddr,
-			},
 			V2RayAPI: &option.V2RayAPIOptions{
 				Listen: statsListenAddr,
 				Stats: &option.V2RayStatsServiceOptions{
@@ -156,6 +153,11 @@ func BuildConfig(nodeConfig *panel.NodeConfig, users []panel.User, listenPort in
 				},
 			},
 		},
+	}
+	if strings.TrimSpace(clashAPIListenAddr) != "" {
+		opts.Experimental.ClashAPI = &option.ClashAPIOptions{
+			ExternalController: strings.TrimSpace(clashAPIListenAddr),
+		}
 	}
 
 	return opts, nil

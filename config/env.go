@@ -15,7 +15,7 @@ const (
 	defaultListenPort     = 443
 	defaultLogLevel       = "info"
 	defaultStatsListen    = "127.0.0.1:10085"
-	defaultClashAPIListen = "127.0.0.1:10086"
+	defaultClashAPIListen = ""
 	defaultStatusListen   = "127.0.0.1:10087"
 
 	defaultMaxConnPerUser          = 32

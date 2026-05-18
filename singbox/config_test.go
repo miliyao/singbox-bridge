@@ -27,7 +27,7 @@ func TestBuildConfigUsesDefaultsAndPrependsSafetyRules(t *testing.T) {
 	}
 	users := []panel.User{{ID: 1, UUID: "uuid-1"}}
 
-	opts, err := BuildConfig(nodeConfig, users, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086")
+	opts, err := BuildConfig(nodeConfig, users, 443, "info", "127.0.0.1:10085", "")
 	if err != nil {
 		t.Fatalf("BuildConfig returned error: %v", err)
 	}
@@ -82,8 +82,27 @@ func TestBuildConfigUsesDefaultsAndPrependsSafetyRules(t *testing.T) {
 	if opts.Experimental == nil || opts.Experimental.V2RayAPI == nil || opts.Experimental.V2RayAPI.Listen != "127.0.0.1:10085" {
 		t.Fatalf("unexpected stats listen addr: %#v", opts.Experimental)
 	}
+	if opts.Experimental.ClashAPI != nil {
+		t.Fatalf("expected clash api to be disabled by default, got %#v", opts.Experimental.ClashAPI)
+	}
+}
+
+func TestBuildConfigEnablesClashAPIWhenConfigured(t *testing.T) {
+	nodeConfig := &panel.NodeConfig{
+		Protocol: "vless",
+		Network:  "tcp",
+		TLSSettings: panel.TLSSettings{
+			ServerName: "example.com",
+			PrivateKey: "private-key",
+		},
+	}
+
+	opts, err := BuildConfig(nodeConfig, nil, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086")
+	if err != nil {
+		t.Fatalf("BuildConfig returned error: %v", err)
+	}
 	if opts.Experimental.ClashAPI == nil || opts.Experimental.ClashAPI.ExternalController != "127.0.0.1:10086" {
-		t.Fatalf("unexpected clash api listen addr: %#v", opts.Experimental)
+		t.Fatalf("expected configured clash api, got %#v", opts.Experimental.ClashAPI)
 	}
 }
 

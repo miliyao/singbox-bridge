@@ -144,6 +144,22 @@ install_packages() {
     exit 1
 }
 
+write_file_if_changed() {
+    local target="$1"
+    local tmp_file
+
+    tmp_file="$(mktemp)"
+    cat > "$tmp_file"
+
+    if [ -f "$target" ] && cmp -s "$tmp_file" "$target"; then
+        rm -f "$tmp_file"
+        return 1
+    fi
+
+    mv "$tmp_file" "$target"
+    return 0
+}
+
 detect_arch() {
     case "$(uname -m)" in
         x86_64|amd64)
@@ -339,7 +355,7 @@ configure_firewall() {
     log_warn "未检测到防火墙工具，如有需要请手动放行 TCP ${LISTEN_PORT}。"
 }
 
-apply_sysctl_tuning() {
+legacy_apply_sysctl_tuning() {
     local sysctl_conf="/etc/sysctl.d/99-phantom-node.conf"
     local limits_conf="/etc/security/limits.d/99-phantom-node.conf"
 
@@ -378,6 +394,68 @@ EOF
 root soft nofile 1048576
 root hard nofile 1048576
 EOF
+}
+
+kernel_supports_bbr() {
+    local controls=""
+
+    controls="$(sysctl -n net.ipv4.tcp_available_congestion_control 2>/dev/null || true)"
+    case " $controls " in
+        *" bbr "*) return 0 ;;
+    esac
+
+    if command -v modprobe >/dev/null 2>&1; then
+        modprobe tcp_bbr >/dev/null 2>&1 || true
+        controls="$(sysctl -n net.ipv4.tcp_available_congestion_control 2>/dev/null || true)"
+        case " $controls " in
+            *" bbr "*) return 0 ;;
+        esac
+    fi
+
+    return 1
+}
+
+enable_bbr() {
+    local sysctl_conf="/etc/sysctl.d/99-phantom-node.conf"
+    local runtime_qdisc=""
+    local runtime_cc=""
+
+    log_info "[6/7] 自动开启 BBR..."
+
+    if ! kernel_supports_bbr; then
+        log_warn "当前内核未检测到 BBR 支持，跳过自动开启。"
+        return
+    fi
+
+    if write_file_if_changed "$sysctl_conf" <<'EOF'
+# phantom-node BBR
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+EOF
+    then
+        echo -e "  已更新持久化配置: ${sysctl_conf}"
+    else
+        echo -e "  持久化配置已是最新"
+    fi
+
+    runtime_qdisc="$(sysctl -n net.core.default_qdisc 2>/dev/null || true)"
+    runtime_cc="$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || true)"
+
+    if [ "$runtime_qdisc" = "fq" ] && [ "$runtime_cc" = "bbr" ]; then
+        echo -e "  BBR 已处于开启状态"
+        return
+    fi
+
+    if sysctl -p "$sysctl_conf" >/dev/null 2>&1; then
+        runtime_qdisc="$(sysctl -n net.core.default_qdisc 2>/dev/null || true)"
+        runtime_cc="$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || true)"
+        if [ "$runtime_qdisc" = "fq" ] && [ "$runtime_cc" = "bbr" ]; then
+            echo -e "  已成功开启 BBR"
+            return
+        fi
+    fi
+
+    log_warn "已写入 BBR 配置，但本次未能确认运行态已启用；可重启后复查。"
 }
 
 start_service() {
@@ -435,7 +513,7 @@ main() {
     write_env_file
     write_service_file
     configure_firewall
-    apply_sysctl_tuning
+    enable_bbr
     start_service
 }
 

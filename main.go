@@ -49,7 +49,6 @@ func main() {
 			nodeCfg := *cfg
 			nodeCfg.NodeID = id
 			nodeCfg.StatsListenAddr = offsetPort(cfg.StatsListenAddr, idx)
-			nodeCfg.StatusListenAddr = offsetPort(cfg.StatusListenAddr, idx)
 			nodeCfg.TrafficStateFile = specializeTrafficStateFile(cfg.TrafficStateFile, id)
 
 			logger.Info("running doctor for node", zap.Int("node_id", id))
@@ -86,7 +85,6 @@ func main() {
 		nodeCfg := *cfg
 		nodeCfg.NodeID = id
 		nodeCfg.StatsListenAddr = offsetPort(cfg.StatsListenAddr, idx)
-		nodeCfg.StatusListenAddr = offsetPort(cfg.StatusListenAddr, idx)
 		nodeCfg.TrafficStateFile = specializeTrafficStateFile(cfg.TrafficStateFile, id)
 
 		node := core.NewNode(&nodeCfg, logger)

@@ -15,7 +15,6 @@ const (
 	defaultLogLevel       = "info"
 	defaultStatsListen    = "127.0.0.1:10085"
 	defaultClashAPIListen = ""
-	defaultStatusListen   = "127.0.0.1:10087"
 
 	defaultMaxConnPerUser          = 32
 	defaultMaxConnPerIP            = 20
@@ -36,7 +35,6 @@ type Config struct {
 	LogLevel       string
 
 	StatsListenAddr    string
-	StatusListenAddr   string
 	ClashAPIListenAddr string
 	TrafficStateFile   string
 
@@ -104,7 +102,6 @@ func Load() (*Config, error) {
 	}
 
 	statsListenAddr := loadOptionalStringEnv("STATS_LISTEN_ADDR", defaultStatsListen)
-	statusListenAddr := loadOptionalStringEnv("STATUS_LISTEN_ADDR", defaultStatusListen)
 	clashAPIListenAddr := loadOptionalStringEnv("CLASH_API_LISTEN_ADDR", defaultClashAPIListen)
 	trafficStateFile := loadOptionalStringEnv("TRAFFIC_STATE_FILE", defaultTrafficStateFile())
 
@@ -140,7 +137,6 @@ func Load() (*Config, error) {
 		ReportInterval:          reportInterval,
 		LogLevel:                logLevel,
 		StatsListenAddr:         statsListenAddr,
-		StatusListenAddr:        statusListenAddr,
 		ClashAPIListenAddr:      clashAPIListenAddr,
 		TrafficStateFile:        trafficStateFile,
 		MaxConnPerUser:          maxConnPerUser,

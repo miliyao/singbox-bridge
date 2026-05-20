@@ -2,8 +2,6 @@ package core
 
 import (
 	"context"
-	"encoding/json"
-	"net/http"
 	"sync"
 	"time"
 
@@ -28,13 +26,6 @@ type Node struct {
 	trafficReporter *TrafficReporter
 	userSyncer      *UserSyncer
 	limiter         *Limiter
-	statusServer    *http.Server
-	startedAt       time.Time
-	listenPort      int
-	lastAliveAt     time.Time
-	lastAliveOK     bool
-	lastAliveError  string
-	lastOnlineCount int
 }
 
 func NewNode(cfg *config.Config, logger *zap.Logger) *Node {
@@ -59,9 +50,6 @@ func (n *Node) Start(ctx context.Context) error {
 		zap.Int("node_id", n.cfg.NodeID),
 		zap.String("panel", n.cfg.PanelHost),
 	)
-	n.mu.Lock()
-	n.startedAt = time.Now()
-	n.mu.Unlock()
 
 	n.logger.Info("fetching node config from xboard")
 	nodeConfig, err := n.panelClient.GetNodeConfig()
@@ -101,9 +89,6 @@ func (n *Node) Start(ctx context.Context) error {
 	if err := n.engine.Start(nodeConfig, users, n.cfg.LogLevel); err != nil {
 		return err
 	}
-	n.mu.Lock()
-	n.listenPort = nodeConfig.ServerPort
-	n.mu.Unlock()
 	n.logger.Info("sing-box started", zap.Int("listen_port", nodeConfig.ServerPort))
 
 	initialAlivePayload := map[int][]string{}
@@ -111,10 +96,7 @@ func (n *Node) Start(ctx context.Context) error {
 		initialAlivePayload = n.limiter.BuildAlivePayload()
 	}
 	if err := n.panelClient.SendAlive(initialAlivePayload); err != nil {
-		n.markAlive(false, err.Error(), n.engine.GetOnlineCount(ctx))
 		n.logger.Warn("initial online report failed", zap.Error(err))
-	} else {
-		n.markAlive(true, "", n.engine.GetOnlineCount(ctx))
 	}
 
 	n.trafficReporter = NewTrafficReporterWithLimit(n.engine, n.panelClient, n.logger, n.cfg.TrafficStateFile, n.cfg.TrafficPendingMaxUsers)
@@ -130,7 +112,6 @@ func (n *Node) Start(ctx context.Context) error {
 	n.userSyncer.SetLimiter(n.limiter)
 
 	go n.runTickers(ctx)
-	n.startStatusServer()
 
 	n.logger.Info("xboard node started",
 		zap.Int("sync_interval_seconds", n.cfg.SyncInterval),
@@ -164,10 +145,8 @@ func (n *Node) runTickers(ctx context.Context) {
 			}
 			onlineCount := n.engine.GetOnlineCount(ctx)
 			if err := n.panelClient.SendAlive(alivePayload); err != nil {
-				n.markAlive(false, err.Error(), onlineCount)
 				n.logger.Warn("online report failed", zap.Error(err))
 			} else {
-				n.markAlive(true, "", onlineCount)
 				n.logger.Debug("online report succeeded", zap.Int("online_users", onlineCount))
 			}
 		}
@@ -187,108 +166,5 @@ func (n *Node) Shutdown(ctx context.Context) {
 		n.logger.Error("failed to stop sing-box cleanly", zap.Error(err))
 	}
 
-	if n.statusServer != nil {
-		n.logger.Info("stopping status server")
-		if err := n.statusServer.Shutdown(ctx); err != nil {
-			n.logger.Warn("failed to stop status server cleanly", zap.Error(err))
-		}
-	}
-
 	n.logger.Info("xboard node stopped")
-}
-
-func (n *Node) startStatusServer() {
-	if n.cfg.StatusListenAddr == "" {
-		return
-	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"ok":true}`))
-	})
-	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(n.Status())
-	})
-
-	server := &http.Server{
-		Addr:              n.cfg.StatusListenAddr,
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
-	}
-	n.statusServer = server
-
-	go func() {
-		n.logger.Info("status server started", zap.String("listen_addr", n.cfg.StatusListenAddr))
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			n.logger.Warn("status server stopped unexpectedly", zap.Error(err))
-		}
-	}()
-}
-
-func (n *Node) Status() NodeStatus {
-	n.mu.Lock()
-	startedAt := n.startedAt
-	listenPort := n.listenPort
-	lastAliveAt := n.lastAliveAt
-	lastAliveOK := n.lastAliveOK
-	lastAliveError := n.lastAliveError
-	lastOnlineCount := n.lastOnlineCount
-	n.mu.Unlock()
-
-	status := NodeStatus{
-		OK:               true,
-		NodeID:           n.cfg.NodeID,
-		StartedAt:        startedAt,
-		UptimeSeconds:    int64(time.Since(startedAt).Seconds()),
-		SyncInterval:     n.cfg.SyncInterval,
-		ReportInterval:   n.cfg.ReportInterval,
-		ListenPort:       listenPort,
-		StatsListenAddr:  n.cfg.StatsListenAddr,
-		StatusListenAddr: n.cfg.StatusListenAddr,
-		LastAliveAt:      lastAliveAt,
-		LastAliveOK:      lastAliveOK,
-		LastAliveError:   lastAliveError,
-		OnlineUsers:      lastOnlineCount,
-	}
-	if n.userSyncer != nil {
-		status.Sync = n.userSyncer.Snapshot()
-	}
-	if n.trafficReporter != nil {
-		status.Traffic = n.trafficReporter.Snapshot()
-	}
-	if n.limiter != nil {
-		status.Limiter = n.limiter.Snapshot()
-	}
-	return status
-}
-
-func (n *Node) markAlive(ok bool, err string, onlineCount int) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
-	n.lastAliveAt = time.Now()
-	n.lastAliveOK = ok
-	n.lastAliveError = err
-	n.lastOnlineCount = onlineCount
-}
-
-type NodeStatus struct {
-	OK               bool            `json:"ok"`
-	NodeID           int             `json:"node_id"`
-	StartedAt        time.Time       `json:"started_at"`
-	UptimeSeconds    int64           `json:"uptime_seconds"`
-	SyncInterval     int             `json:"sync_interval_seconds"`
-	ReportInterval   int             `json:"report_interval_seconds"`
-	ListenPort       int             `json:"listen_port"`
-	StatsListenAddr  string          `json:"stats_listen_addr"`
-	StatusListenAddr string          `json:"status_listen_addr"`
-	LastAliveAt      time.Time       `json:"last_alive_at,omitempty"`
-	LastAliveOK      bool            `json:"last_alive_ok"`
-	LastAliveError   string          `json:"last_alive_error,omitempty"`
-	OnlineUsers      int             `json:"online_users"`
-	Sync             SyncSnapshot    `json:"sync"`
-	Traffic          TrafficSnapshot `json:"traffic"`
-	Limiter          LimiterSnapshot `json:"limiter"`
 }

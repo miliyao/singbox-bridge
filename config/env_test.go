@@ -10,7 +10,6 @@ func TestLoadMarksExplicitIntervalsAndOptionalFields(t *testing.T) {
 	t.Setenv("REPORT_INTERVAL", "120")
 	t.Setenv("LOG_LEVEL", "debug")
 	t.Setenv("STATS_LISTEN_ADDR", "127.0.0.1:20001")
-	t.Setenv("STATUS_LISTEN_ADDR", "127.0.0.1:20003")
 	t.Setenv("CLASH_API_LISTEN_ADDR", "127.0.0.1:20002")
 	t.Setenv("TRAFFIC_STATE_FILE", "/tmp/pending.json")
 	t.Setenv("MAX_CONN_PER_USER", "11")
@@ -35,9 +34,6 @@ func TestLoadMarksExplicitIntervalsAndOptionalFields(t *testing.T) {
 	}
 	if cfg.StatsListenAddr != "127.0.0.1:20001" {
 		t.Fatalf("StatsListenAddr = %q, want 127.0.0.1:20001", cfg.StatsListenAddr)
-	}
-	if cfg.StatusListenAddr != "127.0.0.1:20003" {
-		t.Fatalf("StatusListenAddr = %q, want 127.0.0.1:20003", cfg.StatusListenAddr)
 	}
 	if cfg.ClashAPIListenAddr != "127.0.0.1:20002" {
 		t.Fatalf("ClashAPIListenAddr = %q, want 127.0.0.1:20002", cfg.ClashAPIListenAddr)
@@ -71,9 +67,6 @@ func TestLoadUsesDefaultsWhenOptionalValuesAreMissing(t *testing.T) {
 	}
 	if cfg.StatsListenAddr == "" {
 		t.Fatal("expected default stats listen address to be set")
-	}
-	if cfg.StatusListenAddr == "" {
-		t.Fatal("expected default status listen address to be set")
 	}
 	if cfg.TrafficStateFile == "" {
 		t.Fatal("expected default traffic state file to be set")

@@ -42,7 +42,6 @@
 | `LOG_LEVEL` | `info` | 日志级别 (`debug`, `info`, `warn`, `error`) |
 | `GOOGLE_IPV6` | `false` | 是否开启 Google 域名 IPv6 直连分流 |
 | `TRAFFIC_STATE_FILE` | `/var/lib/singbox-bridge/pending-traffic.json` | 待上报流量落盘缓冲路径（多实例模式下自动特化为 `*-node{id}.json`） |
-| `CACHE_FILE_PATH` | `/var/lib/singbox-bridge/cache.db` | sing-box 的 SQLite 缓存路径（多实例模式下自动特化为 `cache-node{id}.db`） |
 | `MAX_CONN_PER_USER` | `32` | 每用户允许的最大 TCP 并发连接数 |
 | `MAX_CONN_PER_IP` | `20` | 单个 IP 允许的最大并发连接数 |
 | `MAX_NEW_CONN_PER_USER_PER_MIN` | `120` | 每用户每分钟最大新连接数 |

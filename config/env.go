@@ -39,7 +39,6 @@ type Config struct {
 	StatusListenAddr   string
 	ClashAPIListenAddr string
 	TrafficStateFile   string
-	CacheFilePath      string
 
 	MaxConnPerUser          int
 	MaxConnPerIP            int
@@ -108,7 +107,6 @@ func Load() (*Config, error) {
 	statusListenAddr := loadOptionalStringEnv("STATUS_LISTEN_ADDR", defaultStatusListen)
 	clashAPIListenAddr := loadOptionalStringEnv("CLASH_API_LISTEN_ADDR", defaultClashAPIListen)
 	trafficStateFile := loadOptionalStringEnv("TRAFFIC_STATE_FILE", defaultTrafficStateFile())
-	cacheFilePath := loadOptionalStringEnv("CACHE_FILE_PATH", defaultCacheFilePath())
 
 	maxConnPerUser, err := loadOptionalPositiveIntEnvValue("MAX_CONN_PER_USER", defaultMaxConnPerUser)
 	if err != nil {
@@ -145,7 +143,6 @@ func Load() (*Config, error) {
 		StatusListenAddr:        statusListenAddr,
 		ClashAPIListenAddr:      clashAPIListenAddr,
 		TrafficStateFile:        trafficStateFile,
-		CacheFilePath:           cacheFilePath,
 		MaxConnPerUser:          maxConnPerUser,
 		MaxConnPerIP:            maxConnPerIP,
 		MaxNewConnPerUserPerMin: maxNewConnPerUser,
@@ -273,14 +270,6 @@ func defaultTrafficStateFile() string {
 	}
 
 	return "/var/lib/singbox-bridge/pending-traffic.json"
-}
-
-func defaultCacheFilePath() string {
-	if runtime.GOOS == "windows" {
-		return filepath.Join(os.TempDir(), "singbox-bridge", "cache.db")
-	}
-
-	return "/var/lib/singbox-bridge/cache.db"
 }
 
 func tryLoadEnvFile(path string) error {

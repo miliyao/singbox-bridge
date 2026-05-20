@@ -13,7 +13,6 @@ func TestLoadMarksExplicitIntervalsAndOptionalFields(t *testing.T) {
 	t.Setenv("STATUS_LISTEN_ADDR", "127.0.0.1:20003")
 	t.Setenv("CLASH_API_LISTEN_ADDR", "127.0.0.1:20002")
 	t.Setenv("TRAFFIC_STATE_FILE", "/tmp/pending.json")
-	t.Setenv("CACHE_FILE_PATH", "/tmp/cache.db")
 	t.Setenv("MAX_CONN_PER_USER", "11")
 	t.Setenv("MAX_CONN_PER_IP", "12")
 	t.Setenv("MAX_NEW_CONN_PER_USER_PER_MIN", "13")
@@ -45,9 +44,6 @@ func TestLoadMarksExplicitIntervalsAndOptionalFields(t *testing.T) {
 	}
 	if cfg.TrafficStateFile != "/tmp/pending.json" {
 		t.Fatalf("TrafficStateFile = %q, want /tmp/pending.json", cfg.TrafficStateFile)
-	}
-	if cfg.CacheFilePath != "/tmp/cache.db" {
-		t.Fatalf("CacheFilePath = %q, want /tmp/cache.db", cfg.CacheFilePath)
 	}
 	if cfg.MaxConnPerUser != 11 || cfg.MaxConnPerIP != 12 || cfg.MaxNewConnPerUserPerMin != 13 || cfg.MaxNewConnPerIPPerMin != 14 {
 		t.Fatalf("unexpected limiter config: %#v", cfg)

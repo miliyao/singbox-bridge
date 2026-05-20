@@ -3,8 +3,6 @@ package singbox
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sync"
 
 	"singbox-bridge/panel"
@@ -39,10 +37,9 @@ type Engine struct {
 	limiter             ConnectionLimiter
 	rates               UserRateProvider
 	logger              *zap.Logger
-	cachePath           string
 }
 
-func NewEngine(statsListenAddr, clashAPIListenAddr string, googleIPv6 bool, limiter ConnectionLimiter, rates UserRateProvider, logger *zap.Logger, cachePath string) *Engine {
+func NewEngine(statsListenAddr, clashAPIListenAddr string, googleIPv6 bool, limiter ConnectionLimiter, rates UserRateProvider, logger *zap.Logger) *Engine {
 	return &Engine{
 		statsListenAddr:    statsListenAddr,
 		clashAPIListenAddr: clashAPIListenAddr,
@@ -50,7 +47,6 @@ func NewEngine(statsListenAddr, clashAPIListenAddr string, googleIPv6 bool, limi
 		limiter:            limiter,
 		rates:              rates,
 		logger:             logger,
-		cachePath:          cachePath,
 	}
 }
 
@@ -153,15 +149,9 @@ func (e *Engine) ReloadUsers(nodeConfig *panel.NodeConfig, newUsers []panel.User
 }
 
 func (e *Engine) createBox(nodeConfig *panel.NodeConfig, users []panel.User, logLevel string) (*box.Box, error) {
-	opts, err := BuildConfig(nodeConfig, users, logLevel, e.statsListenAddr, e.clashAPIListenAddr, e.googleIPv6, e.cachePath)
+	opts, err := BuildConfig(nodeConfig, users, logLevel, e.statsListenAddr, e.clashAPIListenAddr, e.googleIPv6)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate sing-box config: %w", err)
-	}
-
-	if e.cachePath != "" {
-		if err := os.MkdirAll(filepath.Dir(e.cachePath), 0755); err != nil {
-			e.logger.Warn("failed to create cache directory", zap.String("path", e.cachePath), zap.Error(err))
-		}
 	}
 
 	ctx := createContext()

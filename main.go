@@ -51,7 +51,6 @@ func main() {
 			nodeCfg.StatsListenAddr = offsetPort(cfg.StatsListenAddr, idx)
 			nodeCfg.StatusListenAddr = offsetPort(cfg.StatusListenAddr, idx)
 			nodeCfg.TrafficStateFile = specializeTrafficStateFile(cfg.TrafficStateFile, id)
-			nodeCfg.CacheFilePath = specializeCacheFilePath(cfg.CacheFilePath, id)
 
 			logger.Info("running doctor for node", zap.Int("node_id", id))
 			res := core.RunDoctor(doctorCtx, &nodeCfg, logger)
@@ -89,7 +88,6 @@ func main() {
 		nodeCfg.StatsListenAddr = offsetPort(cfg.StatsListenAddr, idx)
 		nodeCfg.StatusListenAddr = offsetPort(cfg.StatusListenAddr, idx)
 		nodeCfg.TrafficStateFile = specializeTrafficStateFile(cfg.TrafficStateFile, id)
-		nodeCfg.CacheFilePath = specializeCacheFilePath(cfg.CacheFilePath, id)
 
 		node := core.NewNode(&nodeCfg, logger)
 		if err := node.Start(ctx); err != nil {
@@ -149,15 +147,6 @@ func offsetPort(addr string, offset int) string {
 }
 
 func specializeTrafficStateFile(path string, nodeID int) string {
-	if path == "" {
-		return ""
-	}
-	ext := filepath.Ext(path)
-	base := strings.TrimSuffix(path, ext)
-	return fmt.Sprintf("%s-node%d%s", base, nodeID, ext)
-}
-
-func specializeCacheFilePath(path string, nodeID int) string {
 	if path == "" {
 		return ""
 	}

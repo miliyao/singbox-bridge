@@ -28,7 +28,7 @@ func TestBuildConfigUsesDefaultsAndPrependsSafetyRules(t *testing.T) {
 	}
 	users := []panel.User{{ID: 1, UUID: "uuid-1"}}
 
-	opts, err := BuildConfig(nodeConfig, users, "info", "127.0.0.1:10085", "", false, "")
+	opts, err := BuildConfig(nodeConfig, users, "info", "127.0.0.1:10085", "", false)
 	if err != nil {
 		t.Fatalf("BuildConfig returned error: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestBuildConfigEnablesClashAPIWhenConfigured(t *testing.T) {
 		},
 	}
 
-	opts, err := BuildConfig(nodeConfig, nil, "info", "127.0.0.1:10085", "127.0.0.1:10086", false, "")
+	opts, err := BuildConfig(nodeConfig, nil, "info", "127.0.0.1:10085", "127.0.0.1:10086", false)
 	if err != nil {
 		t.Fatalf("BuildConfig returned error: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestBuildConfigRejectsUnsupportedNetwork(t *testing.T) {
 		},
 	}
 
-	if _, err := BuildConfig(nodeConfig, nil, "info", "127.0.0.1:10085", "127.0.0.1:10086", false, ""); err == nil {
+	if _, err := BuildConfig(nodeConfig, nil, "info", "127.0.0.1:10085", "127.0.0.1:10086", false); err == nil {
 		t.Fatal("expected unsupported network error")
 	}
 }
@@ -145,7 +145,7 @@ func TestBuildConfigAcceptsSpeedLimit(t *testing.T) {
 		},
 	}
 
-	_, err := BuildConfig(nodeConfig, []panel.User{{ID: 1, UUID: "uuid-1", SpeedLimit: 10}}, "info", "127.0.0.1:10085", "127.0.0.1:10086", false, "")
+	_, err := BuildConfig(nodeConfig, []panel.User{{ID: 1, UUID: "uuid-1", SpeedLimit: 10}}, "info", "127.0.0.1:10085", "127.0.0.1:10086", false)
 	if err != nil {
 		t.Fatalf("BuildConfig returned error: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestBuildConfigAcceptsRouteObject(t *testing.T) {
 		Routes: json.RawMessage(`{"rules":[{"domain_suffix":["example.com"],"outbound":"direct"}],"final":"direct"}`),
 	}
 
-	opts, err := BuildConfig(nodeConfig, nil, "info", "127.0.0.1:10085", "127.0.0.1:10086", false, "")
+	opts, err := BuildConfig(nodeConfig, nil, "info", "127.0.0.1:10085", "127.0.0.1:10086", false)
 	if err != nil {
 		t.Fatalf("BuildConfig returned error: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestBuildConfigRejectsInvalidRoutePayload(t *testing.T) {
 		Routes: json.RawMessage(`{"rules":[{"type":"unknown"}]}`),
 	}
 
-	if _, err := BuildConfig(nodeConfig, nil, "info", "127.0.0.1:10085", "127.0.0.1:10086", false, ""); err == nil {
+	if _, err := BuildConfig(nodeConfig, nil, "info", "127.0.0.1:10085", "127.0.0.1:10086", false); err == nil {
 		t.Fatal("expected route decode error")
 	}
 }
@@ -204,7 +204,7 @@ func TestBuildConfigConvertsLegacyRouteRules(t *testing.T) {
 		]`),
 	}
 
-	opts, err := BuildConfig(nodeConfig, nil, "info", "127.0.0.1:10085", "127.0.0.1:10086", false, "")
+	opts, err := BuildConfig(nodeConfig, nil, "info", "127.0.0.1:10085", "127.0.0.1:10086", false)
 	if err != nil {
 		t.Fatalf("BuildConfig returned error: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestBuildConfigEnablesGoogleIPv6(t *testing.T) {
 		},
 	}
 
-	opts, err := BuildConfig(nodeConfig, nil, "info", "127.0.0.1:10085", "127.0.0.1:10086", true, "")
+	opts, err := BuildConfig(nodeConfig, nil, "info", "127.0.0.1:10085", "127.0.0.1:10086", true)
 	if err != nil {
 		t.Fatalf("BuildConfig returned error: %v", err)
 	}

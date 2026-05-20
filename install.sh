@@ -337,7 +337,8 @@ EOF
 
     # Start single service
     log_info "Starting service ${SERVICE_NAME}..."
-    systemctl enable --now "$SERVICE_NAME"
+    systemctl enable "$SERVICE_NAME"
+    systemctl restart "$SERVICE_NAME"
 
     if ! systemctl is-active --quiet "$SERVICE_NAME"; then
         log_error "Failed to start service: ${SERVICE_NAME}"

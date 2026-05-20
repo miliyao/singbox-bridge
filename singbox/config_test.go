@@ -77,8 +77,11 @@ func TestBuildConfigUsesDefaultsAndPrependsSafetyRules(t *testing.T) {
 	if opts.Route.Rules[3].DefaultOptions.Port[0] != 445 || opts.Route.Rules[3].DefaultOptions.PortRange[0] != "135:139" || opts.Route.Rules[3].DefaultOptions.RuleAction.Action != C.RuleActionTypeReject {
 		t.Fatalf("expected fourth route to reject high-risk ports, got %#v", opts.Route.Rules[3])
 	}
-	if opts.Route.Rules[4].DefaultOptions.DomainSuffix[0] != "cn" || opts.Route.Rules[4].DefaultOptions.RuleAction.Action != C.RuleActionTypeReject {
-		t.Fatalf("expected fifth route to reject DomainSuffix cn, got %#v", opts.Route.Rules[4])
+	if opts.Route.Rules[4].DefaultOptions.RuleSet[0] != "geoip-cn" || opts.Route.Rules[4].DefaultOptions.RuleAction.Action != C.RuleActionTypeReject {
+		t.Fatalf("expected fifth route to reject RuleSet geoip-cn, got %#v", opts.Route.Rules[4])
+	}
+	if len(opts.Route.RuleSet) != 2 || opts.Route.RuleSet[0].Tag != "geoip-cn" {
+		t.Fatalf("expected 2 rule sets with geoip-cn, got %#v", opts.Route.RuleSet)
 	}
 	if opts.DNS == nil || len(opts.DNS.Rules) != 1 {
 		t.Fatalf("expected 1 dns reject rule, got %#v", opts.DNS)

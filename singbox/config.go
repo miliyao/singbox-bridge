@@ -206,11 +206,37 @@ func mergeDefaultRouteOptions(route *option.RouteOptions) *option.RouteOptions {
 	mergedRules = append(mergedRules, route.Rules...)
 	route.Rules = mergedRules
 
+	// 合并内置安全规则集 (geoip-cn 与 geosite-cn)
+	route.RuleSet = append(route.RuleSet, defaultRuleSets()...)
+
 	if route.Final == "" {
 		route.Final = directOutboundTag
 	}
 
 	return route
+}
+
+func defaultRuleSets() []option.RuleSet {
+	return []option.RuleSet{
+		{
+			Type:   "remote",
+			Tag:    "geoip-cn",
+			Format: "binary",
+			RemoteOptions: option.RemoteRuleSet{
+				URL:            "https://fastly.jsdelivr.net/gh/lyc8503/sing-box-rules@rule-set/geoip-cn.srs",
+				DownloadDetour: directOutboundTag,
+			},
+		},
+		{
+			Type:   "remote",
+			Tag:    "geosite-cn",
+			Format: "binary",
+			RemoteOptions: option.RemoteRuleSet{
+				URL:            "https://fastly.jsdelivr.net/gh/lyc8503/sing-box-rules@rule-set/geosite-cn.srs",
+				DownloadDetour: directOutboundTag,
+			},
+		},
+	}
 }
 
 func defaultSafetyRules() []option.Rule {
@@ -227,14 +253,14 @@ func defaultSafetyRules() []option.Rule {
 		rejectRule(option.RawDefaultRule{
 			Port: badoption.Listable[uint16]{25},
 		}),
-		// 4. 拦截常见高危与入侵端口
+		// 4. 拦截常见 high-risk 端口 (SMB, RDP, NetBIOS)
 		rejectRule(option.RawDefaultRule{
 			Port:      badoption.Listable[uint16]{445, 3389},
 			PortRange: badoption.Listable[string]{"135:139"},
 		}),
-		// 5. 拦截中国大陆常见顶级域名 (防止回源)
+		// 5. 拦截中国大陆 IP 与域名 (使用高性能远程规则集，不依赖本地数据库)
 		rejectRule(option.RawDefaultRule{
-			DomainSuffix: badoption.Listable[string]{"cn", "com.cn", "net.cn", "org.cn", "gov.cn"},
+			RuleSet: badoption.Listable[string]{"geoip-cn", "geosite-cn"},
 		}),
 	}
 }

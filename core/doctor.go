@@ -56,16 +56,16 @@ func RunDoctor(ctx context.Context, cfg *config.Config, logger *zap.Logger) Doct
 		add("users_valid", true, "all users have ids and uuids")
 	}
 
-	if _, err := singbox.BuildConfig(nodeConfig, users, cfg.ListenPort, cfg.LogLevel, cfg.StatsListenAddr, cfg.ClashAPIListenAddr, cfg.GoogleIPv6); err != nil {
+	if _, err := singbox.BuildConfig(nodeConfig, users, cfg.LogLevel, cfg.StatsListenAddr, cfg.ClashAPIListenAddr, cfg.GoogleIPv6); err != nil {
 		add("singbox_config", false, err.Error())
 	} else {
 		add("singbox_config", true, "config can be translated")
 	}
 
-	if err := checkListenPort(ctx, cfg.ListenPort); err != nil {
+	if err := checkListenPort(ctx, nodeConfig.ServerPort); err != nil {
 		add("listen_port", false, err.Error())
 	} else {
-		add("listen_port", true, fmt.Sprintf(":%d is available", cfg.ListenPort))
+		add("listen_port", true, fmt.Sprintf(":%d is available", nodeConfig.ServerPort))
 	}
 
 	if _, err := client.GetUserAlive(); err != nil {

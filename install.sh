@@ -19,7 +19,6 @@ GO_VERSION="1.25.6"
 GO_INSTALL_DIR="/usr/local/go"
 GO_BINARY="/usr/local/go/bin/go"
 BUILD_TAGS="with_utls"
-LISTEN_PORT=443
 DOWNLOAD_URL=""
 INSTALL_FROM_SOURCE=false
 GOOGLE_IPV6=false
@@ -30,7 +29,6 @@ Usage:
   bash install.sh --node-id=5 --panel=https://panel.example.com --token=secret
 
 Optional:
-  --port=443
   --google-ipv6
   --version=latest|v0.1.0
   --ref=main
@@ -64,7 +62,6 @@ parse_args() {
             --node-id=*) NODE_ID="${arg#*=}" ;;
             --panel=*) PANEL_HOST="${arg#*=}" ;;
             --token=*) PANEL_TOKEN="${arg#*=}" ;;
-            --port=*) LISTEN_PORT="${arg#*=}" ;;
             --google-ipv6) GOOGLE_IPV6=true ;;
             --version=*) RELEASE_VERSION="${arg#*=}" ;;
             --ref=*) REPO_REF="${arg#*=}" ;;
@@ -250,60 +247,8 @@ install_binary() {
     build_from_source
 }
 
-write_env_file() {
-    log_info "Writing environment file..."
-    cat > "$ENV_FILE" <<EOF
-PANEL_HOST=${PANEL_HOST}
-PANEL_TOKEN=${PANEL_TOKEN}
-NODE_ID=${NODE_ID}
-LISTEN_PORT=${LISTEN_PORT}
-GOOGLE_IPV6=${GOOGLE_IPV6:-false}
-EOF
-    chmod 600 "$ENV_FILE"
-}
-
-write_service_file() {
-    log_info "Writing systemd service..."
-    cat > "$SERVICE_FILE" <<EOF
-[Unit]
-Description=singbox-bridge Xboard Node (ID: ${NODE_ID})
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=${INSTALL_DIR}/${SERVICE_NAME}
-EnvironmentFile=${ENV_FILE}
-Restart=always
-RestartSec=5
-LimitNOFILE=65535
-WorkingDirectory=${BUILD_ROOT}
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    systemctl daemon-reload
-}
-
 configure_firewall() {
-    log_info "Opening TCP port..."
-    if command -v ufw >/dev/null 2>&1; then
-        ufw allow "${LISTEN_PORT}/tcp" >/dev/null 2>&1 || true
-        return
-    fi
-
-    if command -v firewall-cmd >/dev/null 2>&1; then
-        firewall-cmd --permanent --add-port="${LISTEN_PORT}/tcp" >/dev/null 2>&1 || true
-        firewall-cmd --reload >/dev/null 2>&1 || true
-        return
-    fi
-
-    if command -v iptables >/dev/null 2>&1; then
-        iptables -I INPUT -p tcp --dport "${LISTEN_PORT}" -j ACCEPT 2>/dev/null || true
-        return
-    fi
-
-    log_warn "No firewall tool detected; open TCP ${LISTEN_PORT} manually if needed."
+    log_warn "Port is managed by Xboard panel. Please manually open the corresponding port on your firewall."
 }
 
 enable_bbr() {
@@ -322,24 +267,11 @@ EOF
     sysctl -p /etc/sysctl.d/99-singbox-bridge.conf >/dev/null 2>&1 || true
 }
 
-start_service() {
-    log_info "Starting service..."
-    systemctl enable --now "$SERVICE_NAME"
-
-    if systemctl is-active --quiet "$SERVICE_NAME"; then
-        log_info "Installation complete."
-        return
-    fi
-
-    log_error "Service failed to start."
-    exit 1
-}
-
 print_summary() {
     echo -e "${GREEN}singbox-bridge installer${NC}"
     echo -e "  node id: ${YELLOW}${NODE_ID}${NC}"
     echo -e "  panel:   ${YELLOW}${PANEL_HOST}${NC}"
-    echo -e "  listen:  ${YELLOW}${LISTEN_PORT}${NC}"
+    echo -e "  listen:  ${YELLOW}(controlled by Xboard panel)${NC}"
 }
 
 main() {
@@ -351,11 +283,70 @@ main() {
 
     mkdir -p "$INSTALL_DIR" "$BUILD_ROOT"
     install_binary
-    write_env_file
-    write_service_file
+
+    # Clean up legacy node-specific services if they exist
+    local legacy_services
+    legacy_services=$(find /etc/systemd/system/ -maxdepth 1 -name "singbox-bridge-node*.service" 2>/dev/null)
+    if [ -n "$legacy_services" ]; then
+        log_warn "Detected legacy node-specific services. Stopping and disabling them..."
+        for svc_file in $legacy_services; do
+            local svc_name
+            svc_name=$(basename "$svc_file")
+            log_info "  Disabling ${svc_name}..."
+            systemctl disable --now "$svc_name" 2>/dev/null || true
+            rm -f "$svc_file"
+            local node_id_part
+            node_id_part=$(echo "$svc_name" | sed 's/singbox-bridge-node//; s/\.service//')
+            rm -f "/etc/singbox-bridge-node${node_id_part}.env"
+        done
+        systemctl daemon-reload
+    fi
+
+    # Write single environment file
+    log_info "Writing environment file: ${ENV_FILE}..."
+    cat > "$ENV_FILE" <<EOF
+PANEL_HOST=${PANEL_HOST}
+PANEL_TOKEN=${PANEL_TOKEN}
+NODE_ID=${NODE_ID}
+GOOGLE_IPV6=${GOOGLE_IPV6:-false}
+EOF
+    chmod 600 "$ENV_FILE"
+
+    # Write single service file
+    log_info "Writing systemd service: ${SERVICE_FILE}..."
+    cat > "$SERVICE_FILE" <<EOF
+[Unit]
+Description=singbox-bridge Xboard Nodes (IDs: ${NODE_ID})
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=${INSTALL_DIR}/${SERVICE_NAME}
+EnvironmentFile=${ENV_FILE}
+Restart=always
+RestartSec=5
+LimitNOFILE=65535
+WorkingDirectory=${BUILD_ROOT}
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+
+    # Start single service
+    log_info "Starting service ${SERVICE_NAME}..."
+    systemctl enable --now "$SERVICE_NAME"
+
+    if ! systemctl is-active --quiet "$SERVICE_NAME"; then
+        log_error "Failed to start service: ${SERVICE_NAME}"
+        exit 1
+    fi
+
     configure_firewall
     enable_bbr
-    start_service
+    log_info "Installation complete. Service is running!"
 }
 
 main "$@"

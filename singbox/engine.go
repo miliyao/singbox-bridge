@@ -30,7 +30,6 @@ type Engine struct {
 	users               []panel.User
 	stats               *StatsClient
 	currentConfig       *panel.NodeConfig
-	listenPort          int
 	logLevel            string
 	statsListenAddr     string
 	clashAPIListenAddr string
@@ -72,8 +71,8 @@ func createContext() context.Context {
 	return box.Context(ctx, inboundRegistry, outboundRegistry, endpointRegistry, dnsTransportRegistry, serviceRegistry)
 }
 
-func (e *Engine) Start(nodeConfig *panel.NodeConfig, users []panel.User, listenPort int, logLevel string) error {
-	instance, err := e.createBox(nodeConfig, users, listenPort, logLevel)
+func (e *Engine) Start(nodeConfig *panel.NodeConfig, users []panel.User, logLevel string) error {
+	instance, err := e.createBox(nodeConfig, users, logLevel)
 	if err != nil {
 		return err
 	}
@@ -93,15 +92,14 @@ func (e *Engine) Start(nodeConfig *panel.NodeConfig, users []panel.User, listenP
 	e.users = cloneUsers(users)
 	e.stats = statsClient
 	e.currentConfig = nodeConfig
-	e.listenPort = listenPort
 	e.logLevel = logLevel
 	e.mu.Unlock()
 
 	return nil
 }
 
-func (e *Engine) ReloadUsers(nodeConfig *panel.NodeConfig, newUsers []panel.User, listenPort int, logLevel string) error {
-	newInstance, err := e.createBox(nodeConfig, newUsers, listenPort, logLevel)
+func (e *Engine) ReloadUsers(nodeConfig *panel.NodeConfig, newUsers []panel.User, logLevel string) error {
+	newInstance, err := e.createBox(nodeConfig, newUsers, logLevel)
 	if err != nil {
 		return fmt.Errorf("failed to build new sing-box instance: %w", err)
 	}
@@ -111,7 +109,6 @@ func (e *Engine) ReloadUsers(nodeConfig *panel.NodeConfig, newUsers []panel.User
 	oldStats := e.stats
 	oldUsers := cloneUsers(e.users)
 	oldConfig := e.currentConfig
-	oldListenPort := e.listenPort
 	oldLogLevel := e.logLevel
 	e.instance = nil
 	e.stats = nil
@@ -127,7 +124,7 @@ func (e *Engine) ReloadUsers(nodeConfig *panel.NodeConfig, newUsers []panel.User
 	if err := newInstance.Start(); err != nil {
 		_ = newInstance.Close()
 
-		rollbackErr := e.restorePreviousInstance(oldConfig, oldUsers, oldListenPort, oldLogLevel)
+		rollbackErr := e.restorePreviousInstance(oldConfig, oldUsers, oldLogLevel)
 		if rollbackErr != nil {
 			return fmt.Errorf("failed to start new sing-box instance: %w; rollback also failed: %v", err, rollbackErr)
 		}
@@ -145,15 +142,14 @@ func (e *Engine) ReloadUsers(nodeConfig *panel.NodeConfig, newUsers []panel.User
 	e.users = cloneUsers(newUsers)
 	e.stats = newStats
 	e.currentConfig = nodeConfig
-	e.listenPort = listenPort
 	e.logLevel = logLevel
 	e.mu.Unlock()
 
 	return nil
 }
 
-func (e *Engine) createBox(nodeConfig *panel.NodeConfig, users []panel.User, listenPort int, logLevel string) (*box.Box, error) {
-	opts, err := BuildConfig(nodeConfig, users, listenPort, logLevel, e.statsListenAddr, e.clashAPIListenAddr, e.googleIPv6)
+func (e *Engine) createBox(nodeConfig *panel.NodeConfig, users []panel.User, logLevel string) (*box.Box, error) {
+	opts, err := BuildConfig(nodeConfig, users, logLevel, e.statsListenAddr, e.clashAPIListenAddr, e.googleIPv6)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate sing-box config: %w", err)
 	}
@@ -211,7 +207,6 @@ func (e *Engine) Close() error {
 	e.stats = nil
 	e.users = nil
 	e.currentConfig = nil
-	e.listenPort = 0
 	e.logLevel = ""
 	e.mu.Unlock()
 
@@ -224,12 +219,12 @@ func (e *Engine) Close() error {
 	return nil
 }
 
-func (e *Engine) restorePreviousInstance(nodeConfig *panel.NodeConfig, users []panel.User, listenPort int, logLevel string) error {
+func (e *Engine) restorePreviousInstance(nodeConfig *panel.NodeConfig, users []panel.User, logLevel string) error {
 	if nodeConfig == nil {
 		return fmt.Errorf("previous config is missing, cannot roll back")
 	}
 
-	instance, err := e.createBox(nodeConfig, users, listenPort, logLevel)
+	instance, err := e.createBox(nodeConfig, users, logLevel)
 	if err != nil {
 		return fmt.Errorf("failed to rebuild previous sing-box instance: %w", err)
 	}
@@ -249,7 +244,6 @@ func (e *Engine) restorePreviousInstance(nodeConfig *panel.NodeConfig, users []p
 	e.users = cloneUsers(users)
 	e.stats = statsClient
 	e.currentConfig = nodeConfig
-	e.listenPort = listenPort
 	e.logLevel = logLevel
 	e.mu.Unlock()
 

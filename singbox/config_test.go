@@ -15,6 +15,7 @@ func TestBuildConfigUsesDefaultsAndPrependsSafetyRules(t *testing.T) {
 	nodeConfig := &panel.NodeConfig{
 		Protocol: "vless",
 		ListenIP: "",
+		ServerPort: 443,
 		Network:  "tcp",
 		Flow:     "",
 		TLSSettings: panel.TLSSettings{
@@ -27,7 +28,7 @@ func TestBuildConfigUsesDefaultsAndPrependsSafetyRules(t *testing.T) {
 	}
 	users := []panel.User{{ID: 1, UUID: "uuid-1"}}
 
-	opts, err := BuildConfig(nodeConfig, users, 443, "info", "127.0.0.1:10085", "", false)
+	opts, err := BuildConfig(nodeConfig, users, "info", "127.0.0.1:10085", "", false)
 	if err != nil {
 		t.Fatalf("BuildConfig returned error: %v", err)
 	}
@@ -100,6 +101,7 @@ func TestBuildConfigUsesDefaultsAndPrependsSafetyRules(t *testing.T) {
 func TestBuildConfigEnablesClashAPIWhenConfigured(t *testing.T) {
 	nodeConfig := &panel.NodeConfig{
 		Protocol: "vless",
+		ServerPort: 443,
 		Network:  "tcp",
 		TLSSettings: panel.TLSSettings{
 			ServerName: "example.com",
@@ -107,7 +109,7 @@ func TestBuildConfigEnablesClashAPIWhenConfigured(t *testing.T) {
 		},
 	}
 
-	opts, err := BuildConfig(nodeConfig, nil, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086", false)
+	opts, err := BuildConfig(nodeConfig, nil, "info", "127.0.0.1:10085", "127.0.0.1:10086", false)
 	if err != nil {
 		t.Fatalf("BuildConfig returned error: %v", err)
 	}
@@ -119,6 +121,7 @@ func TestBuildConfigEnablesClashAPIWhenConfigured(t *testing.T) {
 func TestBuildConfigRejectsUnsupportedNetwork(t *testing.T) {
 	nodeConfig := &panel.NodeConfig{
 		Protocol: "vless",
+		ServerPort: 443,
 		Network:  "ws",
 		TLSSettings: panel.TLSSettings{
 			ServerName: "example.com",
@@ -126,7 +129,7 @@ func TestBuildConfigRejectsUnsupportedNetwork(t *testing.T) {
 		},
 	}
 
-	if _, err := BuildConfig(nodeConfig, nil, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086", false); err == nil {
+	if _, err := BuildConfig(nodeConfig, nil, "info", "127.0.0.1:10085", "127.0.0.1:10086", false); err == nil {
 		t.Fatal("expected unsupported network error")
 	}
 }
@@ -134,6 +137,7 @@ func TestBuildConfigRejectsUnsupportedNetwork(t *testing.T) {
 func TestBuildConfigAcceptsSpeedLimit(t *testing.T) {
 	nodeConfig := &panel.NodeConfig{
 		Protocol: "vless",
+		ServerPort: 443,
 		Network:  "tcp",
 		TLSSettings: panel.TLSSettings{
 			ServerName: "example.com",
@@ -141,7 +145,7 @@ func TestBuildConfigAcceptsSpeedLimit(t *testing.T) {
 		},
 	}
 
-	_, err := BuildConfig(nodeConfig, []panel.User{{ID: 1, UUID: "uuid-1", SpeedLimit: 10}}, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086", false)
+	_, err := BuildConfig(nodeConfig, []panel.User{{ID: 1, UUID: "uuid-1", SpeedLimit: 10}}, "info", "127.0.0.1:10085", "127.0.0.1:10086", false)
 	if err != nil {
 		t.Fatalf("BuildConfig returned error: %v", err)
 	}
@@ -150,6 +154,7 @@ func TestBuildConfigAcceptsSpeedLimit(t *testing.T) {
 func TestBuildConfigAcceptsRouteObject(t *testing.T) {
 	nodeConfig := &panel.NodeConfig{
 		Protocol: "vless",
+		ServerPort: 443,
 		Network:  "tcp",
 		TLSSettings: panel.TLSSettings{
 			ServerName: "example.com",
@@ -158,7 +163,7 @@ func TestBuildConfigAcceptsRouteObject(t *testing.T) {
 		Routes: json.RawMessage(`{"rules":[{"domain_suffix":["example.com"],"outbound":"direct"}],"final":"direct"}`),
 	}
 
-	opts, err := BuildConfig(nodeConfig, nil, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086", false)
+	opts, err := BuildConfig(nodeConfig, nil, "info", "127.0.0.1:10085", "127.0.0.1:10086", false)
 	if err != nil {
 		t.Fatalf("BuildConfig returned error: %v", err)
 	}
@@ -170,6 +175,7 @@ func TestBuildConfigAcceptsRouteObject(t *testing.T) {
 func TestBuildConfigRejectsInvalidRoutePayload(t *testing.T) {
 	nodeConfig := &panel.NodeConfig{
 		Protocol: "vless",
+		ServerPort: 443,
 		Network:  "tcp",
 		TLSSettings: panel.TLSSettings{
 			ServerName: "example.com",
@@ -178,7 +184,7 @@ func TestBuildConfigRejectsInvalidRoutePayload(t *testing.T) {
 		Routes: json.RawMessage(`{"rules":[{"type":"unknown"}]}`),
 	}
 
-	if _, err := BuildConfig(nodeConfig, nil, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086", false); err == nil {
+	if _, err := BuildConfig(nodeConfig, nil, "info", "127.0.0.1:10085", "127.0.0.1:10086", false); err == nil {
 		t.Fatal("expected route decode error")
 	}
 }
@@ -186,6 +192,7 @@ func TestBuildConfigRejectsInvalidRoutePayload(t *testing.T) {
 func TestBuildConfigConvertsLegacyRouteRules(t *testing.T) {
 	nodeConfig := &panel.NodeConfig{
 		Protocol: "vless",
+		ServerPort: 443,
 		Network:  "tcp",
 		TLSSettings: panel.TLSSettings{
 			ServerName: "example.com",
@@ -197,7 +204,7 @@ func TestBuildConfigConvertsLegacyRouteRules(t *testing.T) {
 		]`),
 	}
 
-	opts, err := BuildConfig(nodeConfig, nil, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086", false)
+	opts, err := BuildConfig(nodeConfig, nil, "info", "127.0.0.1:10085", "127.0.0.1:10086", false)
 	if err != nil {
 		t.Fatalf("BuildConfig returned error: %v", err)
 	}
@@ -212,6 +219,7 @@ func TestBuildConfigConvertsLegacyRouteRules(t *testing.T) {
 func TestBuildConfigEnablesGoogleIPv6(t *testing.T) {
 	nodeConfig := &panel.NodeConfig{
 		Protocol: "vless",
+		ServerPort: 443,
 		Network:  "tcp",
 		TLSSettings: panel.TLSSettings{
 			ServerName: "example.com",
@@ -219,7 +227,7 @@ func TestBuildConfigEnablesGoogleIPv6(t *testing.T) {
 		},
 	}
 
-	opts, err := BuildConfig(nodeConfig, nil, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086", true)
+	opts, err := BuildConfig(nodeConfig, nil, "info", "127.0.0.1:10085", "127.0.0.1:10086", true)
 	if err != nil {
 		t.Fatalf("BuildConfig returned error: %v", err)
 	}

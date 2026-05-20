@@ -28,7 +28,7 @@ const (
 )
 
 // BuildConfig translates the Xboard node payload into a sing-box runtime config.
-func BuildConfig(nodeConfig *panel.NodeConfig, users []panel.User, listenPort int, logLevel, statsListenAddr, clashAPIListenAddr string, googleIPv6 bool) (option.Options, error) {
+func BuildConfig(nodeConfig *panel.NodeConfig, users []panel.User, logLevel, statsListenAddr, clashAPIListenAddr string, googleIPv6 bool) (option.Options, error) {
 	if nodeConfig == nil {
 		return option.Options{}, fmt.Errorf("xboard node config must not be nil")
 	}
@@ -90,7 +90,7 @@ func BuildConfig(nodeConfig *panel.NodeConfig, users []panel.User, listenPort in
 				Options: &option.VLESSInboundOptions{
 					ListenOptions: option.ListenOptions{
 						Listen:               (*badoption.Addr)(&listenAddr),
-						ListenPort:           uint16(listenPort),
+						ListenPort:           uint16(nodeConfig.ServerPort),
 						ReuseAddr:            true,
 						TCPFastOpen:          true,
 						TCPKeepAlive:         badoption.Duration(defaultTCPKeepAlive),

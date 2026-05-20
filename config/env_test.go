@@ -8,7 +8,6 @@ func TestLoadMarksExplicitIntervalsAndOptionalFields(t *testing.T) {
 	t.Setenv("NODE_ID", "7")
 	t.Setenv("SYNC_INTERVAL", "60")
 	t.Setenv("REPORT_INTERVAL", "120")
-	t.Setenv("LISTEN_PORT", "8443")
 	t.Setenv("LOG_LEVEL", "debug")
 	t.Setenv("STATS_LISTEN_ADDR", "127.0.0.1:20001")
 	t.Setenv("STATUS_LISTEN_ADDR", "127.0.0.1:20003")
@@ -30,9 +29,6 @@ func TestLoadMarksExplicitIntervalsAndOptionalFields(t *testing.T) {
 	}
 	if cfg.SyncInterval != 60 || cfg.ReportInterval != 120 {
 		t.Fatalf("unexpected intervals: sync=%d report=%d", cfg.SyncInterval, cfg.ReportInterval)
-	}
-	if cfg.ListenPort != 8443 {
-		t.Fatalf("ListenPort = %d, want 8443", cfg.ListenPort)
 	}
 	if cfg.LogLevel != "debug" {
 		t.Fatalf("LogLevel = %q, want debug", cfg.LogLevel)
@@ -98,7 +94,6 @@ func TestLoadRejectsInvalidOptionalValues(t *testing.T) {
 	}{
 		{name: "invalid sync interval", key: "SYNC_INTERVAL", value: "0"},
 		{name: "invalid report interval", key: "REPORT_INTERVAL", value: "abc"},
-		{name: "invalid port", key: "LISTEN_PORT", value: "70000"},
 		{name: "invalid log level", key: "LOG_LEVEL", value: "trace"},
 		{name: "invalid max conn per user", key: "MAX_CONN_PER_USER", value: "0"},
 		{name: "invalid max conn per ip", key: "MAX_CONN_PER_IP", value: "-1"},
@@ -117,5 +112,40 @@ func TestLoadRejectsInvalidOptionalValues(t *testing.T) {
 				t.Fatalf("expected Load to reject %s=%q", tc.key, tc.value)
 			}
 		})
+	}
+}
+
+func TestLoadParsesMultiNodeIDs(t *testing.T) {
+	t.Setenv("PANEL_HOST", "https://panel.example.com")
+	t.Setenv("PANEL_TOKEN", "secret")
+	t.Setenv("NODE_ID", "5, 6,7 ")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if cfg.NodeID != 5 {
+		t.Fatalf("expected NodeID to be 5, got %d", cfg.NodeID)
+	}
+
+	if len(cfg.NodeIDs) != 3 || cfg.NodeIDs[0] != 5 || cfg.NodeIDs[1] != 6 || cfg.NodeIDs[2] != 7 {
+		t.Fatalf("unexpected NodeIDs slice: %#v", cfg.NodeIDs)
+	}
+
+	// Test invalid NODE_ID list
+	t.Setenv("NODE_ID", "5, abc, 7")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected Load to fail with invalid list item")
+	}
+
+	t.Setenv("NODE_ID", "5, -1, 7")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected Load to fail with negative list item")
+	}
+
+	t.Setenv("NODE_ID", ", ,")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected Load to fail with empty list")
 	}
 }

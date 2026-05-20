@@ -30,6 +30,7 @@ type Node struct {
 	limiter         *Limiter
 	statusServer    *http.Server
 	startedAt       time.Time
+	listenPort      int
 	lastAliveAt     time.Time
 	lastAliveOK     bool
 	lastAliveError  string
@@ -37,6 +38,7 @@ type Node struct {
 }
 
 func NewNode(cfg *config.Config, logger *zap.Logger) *Node {
+	nodeLogger := logger.With(zap.Int("node_id", cfg.NodeID))
 	limiter := NewLimiterWithConfig(LimiterConfig{
 		MaxConnPerUser:          cfg.MaxConnPerUser,
 		MaxConnPerIP:            cfg.MaxConnPerIP,
@@ -45,9 +47,9 @@ func NewNode(cfg *config.Config, logger *zap.Logger) *Node {
 	})
 	return &Node{
 		cfg:         cfg,
-		engine:      singbox.NewEngine(cfg.StatsListenAddr, cfg.ClashAPIListenAddr, cfg.GoogleIPv6, limiter, limiter, logger),
+		engine:      singbox.NewEngine(cfg.StatsListenAddr, cfg.ClashAPIListenAddr, cfg.GoogleIPv6, limiter, limiter, nodeLogger),
 		panelClient: panel.NewClient(cfg.PanelHost, cfg.PanelToken, cfg.NodeID),
-		logger:      logger,
+		logger:      nodeLogger,
 		limiter:     limiter,
 	}
 }
@@ -96,10 +98,13 @@ func (n *Node) Start(ctx context.Context) error {
 	n.logger.Info("starting sing-box",
 		zap.String("stats_listen_addr", n.cfg.StatsListenAddr),
 	)
-	if err := n.engine.Start(nodeConfig, users, n.cfg.ListenPort, n.cfg.LogLevel); err != nil {
+	if err := n.engine.Start(nodeConfig, users, n.cfg.LogLevel); err != nil {
 		return err
 	}
-	n.logger.Info("sing-box started", zap.Int("listen_port", n.cfg.ListenPort))
+	n.mu.Lock()
+	n.listenPort = nodeConfig.ServerPort
+	n.mu.Unlock()
+	n.logger.Info("sing-box started", zap.Int("listen_port", nodeConfig.ServerPort))
 
 	initialAlivePayload := map[int][]string{}
 	if n.limiter != nil {
@@ -117,7 +122,6 @@ func (n *Node) Start(ctx context.Context) error {
 		n.engine,
 		n.panelClient,
 		nodeConfig,
-		n.cfg.ListenPort,
 		n.cfg.LogLevel,
 		n.logger,
 		n.trafficReporter,
@@ -226,6 +230,7 @@ func (n *Node) startStatusServer() {
 func (n *Node) Status() NodeStatus {
 	n.mu.Lock()
 	startedAt := n.startedAt
+	listenPort := n.listenPort
 	lastAliveAt := n.lastAliveAt
 	lastAliveOK := n.lastAliveOK
 	lastAliveError := n.lastAliveError
@@ -239,7 +244,7 @@ func (n *Node) Status() NodeStatus {
 		UptimeSeconds:    int64(time.Since(startedAt).Seconds()),
 		SyncInterval:     n.cfg.SyncInterval,
 		ReportInterval:   n.cfg.ReportInterval,
-		ListenPort:       n.cfg.ListenPort,
+		ListenPort:       listenPort,
 		StatsListenAddr:  n.cfg.StatsListenAddr,
 		StatusListenAddr: n.cfg.StatusListenAddr,
 		LastAliveAt:      lastAliveAt,

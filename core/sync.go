@@ -16,7 +16,7 @@ import (
 )
 
 type syncEngine interface {
-	ReloadUsers(nodeConfig *panel.NodeConfig, users []panel.User, listenPort int, logLevel string) error
+	ReloadUsers(nodeConfig *panel.NodeConfig, users []panel.User, logLevel string) error
 }
 
 type syncPanelClient interface {
@@ -32,7 +32,6 @@ type UserSyncer struct {
 	engine      syncEngine
 	panelClient syncPanelClient
 	nodeConfig  *panel.NodeConfig
-	listenPort  int
 	logLevel    string
 	logger      *zap.Logger
 
@@ -56,7 +55,6 @@ func NewUserSyncer(
 	engine syncEngine,
 	panelClient syncPanelClient,
 	nodeConfig *panel.NodeConfig,
-	listenPort int,
 	logLevel string,
 	logger *zap.Logger,
 	trafficReporter *TrafficReporter,
@@ -65,7 +63,6 @@ func NewUserSyncer(
 		engine:          engine,
 		panelClient:     panelClient,
 		nodeConfig:      nodeConfig,
-		listenPort:      listenPort,
 		logLevel:        logLevel,
 		logger:          logger,
 		trafficReporter: trafficReporter,
@@ -144,7 +141,7 @@ func (s *UserSyncer) Sync(ctx context.Context) {
 
 	refreshAliveCounts(s.panelClient, s.limiter, s.logger, "sync")
 
-	if err := s.engine.ReloadUsers(newConfig, newUsers, s.listenPort, s.logLevel); err != nil {
+	if err := s.engine.ReloadUsers(newConfig, newUsers, s.logLevel); err != nil {
 		s.markSync(false, err.Error(), len(newUsers), newConfigHash)
 		s.markReload(false, err.Error())
 		s.logger.Error("failed to reload sing-box",

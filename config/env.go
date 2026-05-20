@@ -12,7 +12,6 @@ import (
 const (
 	defaultSyncInterval   = 60
 	defaultReportInterval = 60
-	defaultListenPort     = 443
 	defaultLogLevel       = "info"
 	defaultStatsListen    = "127.0.0.1:10085"
 	defaultClashAPIListen = ""
@@ -30,10 +29,10 @@ type Config struct {
 	PanelHost  string
 	PanelToken string
 	NodeID     int
+	NodeIDs    []int
 
 	SyncInterval   int
 	ReportInterval int
-	ListenPort     int
 	LogLevel       string
 
 	StatsListenAddr    string
@@ -66,9 +65,28 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
-	nodeID, err := requirePositiveIntEnv("NODE_ID")
+	nodeIDsRaw, err := requireEnv("NODE_ID")
 	if err != nil {
 		return nil, err
+	}
+
+	var nodeIDs []int
+	for _, part := range strings.Split(nodeIDsRaw, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		id, err := strconv.Atoi(part)
+		if err != nil {
+			return nil, fmt.Errorf("NODE_ID must be a comma-separated list of integers: %w", err)
+		}
+		if id <= 0 {
+			return nil, fmt.Errorf("NODE_ID values must be greater than 0")
+		}
+		nodeIDs = append(nodeIDs, id)
+	}
+	if len(nodeIDs) == 0 {
+		return nil, fmt.Errorf("NODE_ID must contain at least one valid ID")
 	}
 
 	syncInterval, syncExplicit, err := loadOptionalPositiveIntEnv("SYNC_INTERVAL", defaultSyncInterval)
@@ -80,12 +98,6 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	listenPort, err := loadOptionalPortEnv("LISTEN_PORT", defaultListenPort)
-	if err != nil {
-		return nil, err
-	}
-
 	logLevel, err := loadOptionalLogLevelEnv("LOG_LEVEL", defaultLogLevel)
 	if err != nil {
 		return nil, err
@@ -122,10 +134,10 @@ func Load() (*Config, error) {
 	return &Config{
 		PanelHost:               panelHost,
 		PanelToken:              panelToken,
-		NodeID:                  nodeID,
+		NodeID:                  nodeIDs[0],
+		NodeIDs:                 nodeIDs,
 		SyncInterval:            syncInterval,
 		ReportInterval:          reportInterval,
-		ListenPort:              listenPort,
 		LogLevel:                logLevel,
 		StatsListenAddr:         statsListenAddr,
 		StatusListenAddr:        statusListenAddr,

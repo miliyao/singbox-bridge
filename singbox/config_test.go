@@ -52,8 +52,8 @@ func TestBuildConfigUsesDefaultsAndPrependsSafetyRules(t *testing.T) {
 		t.Fatal("expected sniff to be enabled")
 	}
 
-	if opts.Route == nil || len(opts.Route.Rules) != 7 {
-		t.Fatalf("expected 7 route rules, got %#v", opts.Route)
+	if opts.Route == nil || len(opts.Route.Rules) != 6 {
+		t.Fatalf("expected 6 route rules, got %#v", opts.Route)
 	}
 	if !opts.Route.AutoDetectInterface {
 		t.Fatal("expected auto_detect_interface to be enabled")
@@ -77,11 +77,8 @@ func TestBuildConfigUsesDefaultsAndPrependsSafetyRules(t *testing.T) {
 	if opts.Route.Rules[3].DefaultOptions.Port[0] != 445 || opts.Route.Rules[3].DefaultOptions.PortRange[0] != "135:139" || opts.Route.Rules[3].DefaultOptions.RuleAction.Action != C.RuleActionTypeReject {
 		t.Fatalf("expected fourth route to reject high-risk ports, got %#v", opts.Route.Rules[3])
 	}
-	if opts.Route.Rules[4].DefaultOptions.GeoIP[0] != "cn" || opts.Route.Rules[4].DefaultOptions.RuleAction.Action != C.RuleActionTypeReject {
-		t.Fatalf("expected fifth route to reject GeoIP cn, got %#v", opts.Route.Rules[4])
-	}
-	if opts.Route.Rules[5].DefaultOptions.Geosite[0] != "cn" || opts.Route.Rules[5].DefaultOptions.RuleAction.Action != C.RuleActionTypeReject {
-		t.Fatalf("expected sixth route to reject Geosite cn, got %#v", opts.Route.Rules[5])
+	if opts.Route.Rules[4].DefaultOptions.DomainSuffix[0] != "cn" || opts.Route.Rules[4].DefaultOptions.RuleAction.Action != C.RuleActionTypeReject {
+		t.Fatalf("expected fifth route to reject DomainSuffix cn, got %#v", opts.Route.Rules[4])
 	}
 	if opts.DNS == nil || len(opts.DNS.Rules) != 1 {
 		t.Fatalf("expected 1 dns reject rule, got %#v", opts.DNS)
@@ -162,7 +159,7 @@ func TestBuildConfigAcceptsRouteObject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildConfig returned error: %v", err)
 	}
-	if opts.Route == nil || opts.Route.Final != "direct" || len(opts.Route.Rules) != 7 {
+	if opts.Route == nil || opts.Route.Final != "direct" || len(opts.Route.Rules) != 6 {
 		t.Fatalf("unexpected route options: %#v", opts.Route)
 	}
 }
@@ -201,7 +198,7 @@ func TestBuildConfigConvertsLegacyRouteRules(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildConfig returned error: %v", err)
 	}
-	if opts.Route == nil || len(opts.Route.Rules) != 8 {
+	if opts.Route == nil || len(opts.Route.Rules) != 7 {
 		t.Fatalf("unexpected legacy route conversion: %#v", opts.Route)
 	}
 	if opts.Route.Final != "direct" {
@@ -241,7 +238,7 @@ func TestBuildConfigEnablesGoogleIPv6(t *testing.T) {
 	// 检查是否有 google 路由规则
 	var foundRule bool
 	for _, rule := range opts.Route.Rules {
-		if len(rule.DefaultOptions.Geosite) == 1 && rule.DefaultOptions.Geosite[0] == "google" {
+		if len(rule.DefaultOptions.DomainSuffix) > 0 && rule.DefaultOptions.DomainSuffix[0] == "google.com" {
 			foundRule = true
 			if rule.DefaultOptions.RouteOptions.Outbound != "direct-v6" {
 				t.Fatalf("unexpected outbound for google rule: %q", rule.DefaultOptions.RouteOptions.Outbound)

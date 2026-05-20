@@ -54,6 +54,8 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
+	_ = tryLoadEnvFile("/etc/singbox-bridge.env")
+
 	panelHost, err := requireEnv("PANEL_HOST")
 	if err != nil {
 		return nil, err
@@ -256,4 +258,34 @@ func defaultTrafficStateFile() string {
 	}
 
 	return "/var/lib/singbox-bridge/pending-traffic.json"
+}
+
+func tryLoadEnvFile(path string) error {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		val := strings.TrimSpace(parts[1])
+		if (strings.HasPrefix(val, "\"") && strings.HasSuffix(val, "\"")) ||
+			(strings.HasPrefix(val, "'") && strings.HasSuffix(val, "'")) {
+			if len(val) >= 2 {
+				val = val[1 : len(val)-1]
+			}
+		}
+		if os.Getenv(key) == "" {
+			_ = os.Setenv(key, val)
+		}
+	}
+	return nil
 }

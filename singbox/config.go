@@ -232,13 +232,9 @@ func defaultSafetyRules() []option.Rule {
 			Port:      badoption.Listable[uint16]{445, 3389},
 			PortRange: badoption.Listable[string]{"135:139"},
 		}),
-		// 5. 拦截中国大陆 IP (防止回源浪费流量)
+		// 5. 拦截中国大陆常见顶级域名 (防止回源)
 		rejectRule(option.RawDefaultRule{
-			GeoIP: badoption.Listable[string]{"cn"},
-		}),
-		// 6. 拦截中国大陆域名
-		rejectRule(option.RawDefaultRule{
-			Geosite: badoption.Listable[string]{"cn"},
+			DomainSuffix: badoption.Listable[string]{"cn", "com.cn", "net.cn", "org.cn", "gov.cn"},
 		}),
 	}
 }
@@ -277,7 +273,16 @@ func googleIPv6Rule() option.Rule {
 		Type: C.RuleTypeDefault,
 		DefaultOptions: option.DefaultRule{
 			RawDefaultRule: option.RawDefaultRule{
-				Geosite: badoption.Listable[string]{"google"},
+				DomainSuffix: badoption.Listable[string]{
+					"google.com",
+					"googleapis.com",
+					"gstatic.com",
+					"googleusercontent.com",
+					"youtube.com",
+					"ytimg.com",
+					"ggpht.com",
+					"googlevideo.com",
+				},
 			},
 			RuleAction: option.RuleAction{
 				Action: C.RuleActionTypeRoute,

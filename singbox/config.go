@@ -28,7 +28,7 @@ const (
 )
 
 // BuildConfig translates the Xboard node payload into a sing-box runtime config.
-func BuildConfig(nodeConfig *panel.NodeConfig, users []panel.User, logLevel, statsListenAddr, clashAPIListenAddr string, googleIPv6 bool) (option.Options, error) {
+func BuildConfig(nodeConfig *panel.NodeConfig, users []panel.User, logLevel, clashAPIListenAddr string, googleIPv6 bool) (option.Options, error) {
 	if nodeConfig == nil {
 		return option.Options{}, fmt.Errorf("xboard node config must not be nil")
 	}
@@ -67,10 +67,8 @@ func BuildConfig(nodeConfig *panel.NodeConfig, users []panel.User, logLevel, sta
 	routes = mergeDefaultRouteOptions(routes)
 
 	sbUsers := make([]option.VLESSUser, 0, len(users))
-	userNames := make([]string, 0, len(users))
 	for _, user := range users {
 		name := fmt.Sprintf("user-%d", user.ID)
-		userNames = append(userNames, name)
 		sbUsers = append(sbUsers, option.VLESSUser{
 			Name: name,
 			UUID: user.UUID,
@@ -130,20 +128,12 @@ func BuildConfig(nodeConfig *panel.NodeConfig, users []panel.User, logLevel, sta
 		},
 		Route: routes,
 		DNS:   buildDefaultDNSOptions(),
-		Experimental: &option.ExperimentalOptions{
-			V2RayAPI: &option.V2RayAPIOptions{
-				Listen: statsListenAddr,
-				Stats: &option.V2RayStatsServiceOptions{
-					Enabled:  true,
-					Inbounds: []string{inboundTag},
-					Users:    userNames,
-				},
-			},
-		},
 	}
 	if strings.TrimSpace(clashAPIListenAddr) != "" {
-		opts.Experimental.ClashAPI = &option.ClashAPIOptions{
-			ExternalController: strings.TrimSpace(clashAPIListenAddr),
+		opts.Experimental = &option.ExperimentalOptions{
+			ClashAPI: &option.ClashAPIOptions{
+				ExternalController: strings.TrimSpace(clashAPIListenAddr),
+			},
 		}
 	}
 

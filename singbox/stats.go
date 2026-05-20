@@ -5,129 +5,114 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
-
-	v2rayapi "github.com/sagernet/sing-box/experimental/v2rayapi"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"sync"
 )
 
-const (
-	statsConnectDelay = 500 * time.Millisecond
-	statsQueryRPCPath = "/v2ray.core.app.stats.command.StatsService/QueryStats"
-	userNamePrefix    = "user-"
-)
-
-// StatsClient 封装 sing-box 的 V2Ray Stats gRPC 接口。
-type StatsClient struct {
-	conn *grpc.ClientConn
-}
-
+// UserTraffic stores the upload/download metrics.
 type UserTraffic struct {
 	UserID   int
 	Upload   int64
 	Download int64
 }
 
-func NewStatsClient(listenAddr string) (*StatsClient, error) {
-	time.Sleep(statsConnectDelay)
-
-	conn, err := grpc.NewClient(
-		listenAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("连接 sing-box Stats 接口失败: %w", err)
-	}
-
-	return &StatsClient{conn: conn}, nil
+type userTrafficRecord struct {
+	upload   int64
+	download int64
 }
 
-func (s *StatsClient) QueryUserTraffic(ctx context.Context) ([]UserTraffic, error) {
-	resp, err := s.queryStats(ctx, true)
-	if err != nil {
-		return nil, fmt.Errorf("查询用户流量失败: %w", err)
+// StatsTracker implements the traffic collection and online count tracking in memory.
+type StatsTracker struct {
+	mu            sync.Mutex
+	userTraffic   map[string]*userTrafficRecord
+	activeUsers   map[string]map[string]struct{} // userName -> map[connID]struct{}
+}
+
+func NewStatsTracker() *StatsTracker {
+	return &StatsTracker{
+		userTraffic: make(map[string]*userTrafficRecord),
+		activeUsers: make(map[string]map[string]struct{}),
 	}
+}
 
-	trafficMap := make(map[int]*UserTraffic)
-	for _, stat := range resp.GetStat() {
-		parts := strings.Split(stat.Name, ">>>")
-		if len(parts) < 4 {
-			continue
+func (s *StatsTracker) AddTraffic(userName string, upload, download int64) {
+	if userName == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.userTraffic[userName]
+	if !ok {
+		r = &userTrafficRecord{}
+		s.userTraffic[userName] = r
+	}
+	r.upload += upload
+	r.download += download
+}
+
+func (s *StatsTracker) RegisterConn(userName string, connID string) {
+	if userName == "" || connID == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	conns, ok := s.activeUsers[userName]
+	if !ok {
+		conns = make(map[string]struct{})
+		s.activeUsers[userName] = conns
+	}
+	conns[connID] = struct{}{}
+}
+
+func (s *StatsTracker) UnregisterConn(userName string, connID string) {
+	if userName == "" || connID == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	conns, ok := s.activeUsers[userName]
+	if ok {
+		delete(conns, connID)
+		if len(conns) == 0 {
+			delete(s.activeUsers, userName)
 		}
+	}
+}
 
-		userID, err := parseUserID(parts[1])
+func (s *StatsTracker) CollectTraffic(ctx context.Context) ([]UserTraffic, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	result := make([]UserTraffic, 0, len(s.userTraffic))
+	for name, record := range s.userTraffic {
+		userID, err := parseUserID(name)
 		if err != nil {
 			continue
 		}
-
-		entry := trafficMap[userID]
-		if entry == nil {
-			entry = &UserTraffic{UserID: userID}
-			trafficMap[userID] = entry
-		}
-
-		switch parts[3] {
-		case "uplink":
-			entry.Upload = stat.Value
-		case "downlink":
-			entry.Download = stat.Value
-		}
-	}
-
-	result := make([]UserTraffic, 0, len(trafficMap))
-	for _, traffic := range trafficMap {
-		if traffic.Upload == 0 && traffic.Download == 0 {
+		if record.upload == 0 && record.download == 0 {
 			continue
 		}
-		result = append(result, *traffic)
+		result = append(result, UserTraffic{
+			UserID:   userID,
+			Upload:   record.upload,
+			Download: record.download,
+		})
+		// Reset accumulated traffic metrics after collection
+		record.upload = 0
+		record.download = 0
 	}
-
 	return result, nil
 }
 
-func (s *StatsClient) GetOnlineCount(ctx context.Context) (int, error) {
-	resp, err := s.queryStats(ctx, false)
-	if err != nil {
-		return 0, err
-	}
-
-	activeUsers := make(map[string]struct{})
-	for _, stat := range resp.GetStat() {
-		parts := strings.Split(stat.Name, ">>>")
-		if len(parts) >= 2 && stat.Value > 0 {
-			activeUsers[parts[1]] = struct{}{}
-		}
-	}
-
-	return len(activeUsers), nil
-}
-
-func (s *StatsClient) queryStats(ctx context.Context, reset bool) (*v2rayapi.QueryStatsResponse, error) {
-	req := &v2rayapi.QueryStatsRequest{
-		Reset_: reset,
-	}
-	resp := new(v2rayapi.QueryStatsResponse)
-
-	if err := s.conn.Invoke(ctx, statsQueryRPCPath, req, resp); err != nil {
-		return nil, err
-	}
-
-	return resp, nil
-}
-
-func (s *StatsClient) Close() error {
-	if s.conn != nil {
-		return s.conn.Close()
-	}
-	return nil
+func (s *StatsTracker) GetOnlineCount(ctx context.Context) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.activeUsers), nil
 }
 
 func parseUserID(name string) (int, error) {
+	const userNamePrefix = "user-"
 	if !strings.HasPrefix(name, userNamePrefix) {
 		return 0, fmt.Errorf("用户标识格式不正确: %s", name)
 	}
-
 	id, err := strconv.Atoi(strings.TrimPrefix(name, userNamePrefix))
 	if err != nil {
 		return 0, fmt.Errorf("用户标识中的数字部分无效: %s", name)
@@ -135,6 +120,5 @@ func parseUserID(name string) (int, error) {
 	if id <= 0 {
 		return 0, fmt.Errorf("用户 ID 必须大于 0: %d", id)
 	}
-
 	return id, nil
 }

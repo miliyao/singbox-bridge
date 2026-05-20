@@ -4,11 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -45,10 +43,9 @@ func main() {
 
 		var results []core.DoctorResult
 		allOK := true
-		for idx, id := range cfg.NodeIDs {
+		for _, id := range cfg.NodeIDs {
 			nodeCfg := *cfg
 			nodeCfg.NodeID = id
-			nodeCfg.StatsListenAddr = offsetPort(cfg.StatsListenAddr, idx)
 			nodeCfg.TrafficStateFile = specializeTrafficStateFile(cfg.TrafficStateFile, id)
 
 			logger.Info("running doctor for node", zap.Int("node_id", id))
@@ -81,10 +78,9 @@ func main() {
 	defer cancel()
 
 	var nodes []*core.Node
-	for idx, id := range cfg.NodeIDs {
+	for _, id := range cfg.NodeIDs {
 		nodeCfg := *cfg
 		nodeCfg.NodeID = id
-		nodeCfg.StatsListenAddr = offsetPort(cfg.StatsListenAddr, idx)
 		nodeCfg.TrafficStateFile = specializeTrafficStateFile(cfg.TrafficStateFile, id)
 
 		node := core.NewNode(&nodeCfg, logger)
@@ -125,24 +121,6 @@ func main() {
 	logger.Info("进程已退出")
 }
 
-func offsetPort(addr string, offset int) string {
-	if addr == "" {
-		return ""
-	}
-	host, portStr, err := net.SplitHostPort(addr)
-	if err != nil {
-		port, err := strconv.Atoi(addr)
-		if err == nil {
-			return strconv.Itoa(port + offset)
-		}
-		return addr
-	}
-	port, err := strconv.Atoi(portStr)
-	if err != nil {
-		return addr
-	}
-	return net.JoinHostPort(host, strconv.Itoa(port+offset))
-}
 
 func specializeTrafficStateFile(path string, nodeID int) string {
 	if path == "" {

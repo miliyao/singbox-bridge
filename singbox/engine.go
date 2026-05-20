@@ -16,7 +16,6 @@ import (
 	"github.com/sagernet/sing-box/dns"
 	dnsTransport "github.com/sagernet/sing-box/dns/transport"
 	"github.com/sagernet/sing-box/dns/transport/local"
-	_ "github.com/sagernet/sing-box/experimental/v2rayapi"
 	"github.com/sagernet/sing-box/protocol/direct"
 	"github.com/sagernet/sing-box/protocol/vless"
 	"github.com/sagernet/sing/service"
@@ -28,10 +27,9 @@ type Engine struct {
 	mu                  sync.Mutex
 	instance            *box.Box
 	users               []panel.User
-	stats               *StatsClient
+	stats               *StatsTracker
 	currentConfig       *panel.NodeConfig
 	logLevel            string
-	statsListenAddr     string
 	clashAPIListenAddr string
 	googleIPv6          bool
 	limiter             ConnectionLimiter
@@ -39,9 +37,9 @@ type Engine struct {
 	logger              *zap.Logger
 }
 
-func NewEngine(statsListenAddr, clashAPIListenAddr string, googleIPv6 bool, limiter ConnectionLimiter, rates UserRateProvider, logger *zap.Logger) *Engine {
+func NewEngine(clashAPIListenAddr string, googleIPv6 bool, limiter ConnectionLimiter, rates UserRateProvider, logger *zap.Logger) *Engine {
 	return &Engine{
-		statsListenAddr:    statsListenAddr,
+		stats:              NewStatsTracker(),
 		clashAPIListenAddr: clashAPIListenAddr,
 		googleIPv6:          googleIPv6,
 		limiter:            limiter,
@@ -82,15 +80,9 @@ func (e *Engine) Start(nodeConfig *panel.NodeConfig, users []panel.User, logLeve
 		return fmt.Errorf("failed to start sing-box: %w", err)
 	}
 
-	statsClient, statsErr := connectStatsClient(e.statsListenAddr)
-	if statsErr != nil {
-		fmt.Printf("warning: failed to connect to sing-box stats API: %v\n", statsErr)
-	}
-
 	e.mu.Lock()
 	e.instance = instance
 	e.users = cloneUsers(users)
-	e.stats = statsClient
 	e.currentConfig = nodeConfig
 	e.logLevel = logLevel
 	e.mu.Unlock()
@@ -106,17 +98,12 @@ func (e *Engine) ReloadUsers(nodeConfig *panel.NodeConfig, newUsers []panel.User
 
 	e.mu.Lock()
 	oldInstance := e.instance
-	oldStats := e.stats
 	oldUsers := cloneUsers(e.users)
 	oldConfig := e.currentConfig
 	oldLogLevel := e.logLevel
 	e.instance = nil
-	e.stats = nil
 	e.mu.Unlock()
 
-	if oldStats != nil {
-		_ = oldStats.Close()
-	}
 	if oldInstance != nil {
 		_ = oldInstance.Close()
 	}
@@ -132,15 +119,9 @@ func (e *Engine) ReloadUsers(nodeConfig *panel.NodeConfig, newUsers []panel.User
 		return fmt.Errorf("failed to start new sing-box instance, rolled back to the previous config: %w", err)
 	}
 
-	newStats, statsErr := connectStatsClient(e.statsListenAddr)
-	if statsErr != nil {
-		fmt.Printf("warning: failed to reconnect to sing-box stats API after reload: %v\n", statsErr)
-	}
-
 	e.mu.Lock()
 	e.instance = newInstance
 	e.users = cloneUsers(newUsers)
-	e.stats = newStats
 	e.currentConfig = nodeConfig
 	e.logLevel = logLevel
 	e.mu.Unlock()
@@ -149,7 +130,7 @@ func (e *Engine) ReloadUsers(nodeConfig *panel.NodeConfig, newUsers []panel.User
 }
 
 func (e *Engine) createBox(nodeConfig *panel.NodeConfig, users []panel.User, logLevel string) (*box.Box, error) {
-	opts, err := BuildConfig(nodeConfig, users, logLevel, e.statsListenAddr, e.clashAPIListenAddr, e.googleIPv6)
+	opts, err := BuildConfig(nodeConfig, users, logLevel, e.clashAPIListenAddr, e.googleIPv6)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate sing-box config: %w", err)
 	}
@@ -165,7 +146,7 @@ func (e *Engine) createBox(nodeConfig *panel.NodeConfig, users []panel.User, log
 
 	router := service.FromContext[adapter.Router](ctx)
 	if router != nil && e.limiter != nil {
-		router.AppendTracker(newLimiterTracker(e.limiter, e.rates, e.logger))
+		router.AppendTracker(newLimiterTracker(e.limiter, e.stats, e.rates, e.logger))
 	}
 
 	return instance, nil
@@ -180,7 +161,7 @@ func (e *Engine) CollectTraffic(ctx context.Context) ([]UserTraffic, error) {
 		return nil, nil
 	}
 
-	return stats.QueryUserTraffic(ctx)
+	return stats.CollectTraffic(ctx)
 }
 
 func (e *Engine) GetOnlineCount(ctx context.Context) int {
@@ -192,27 +173,19 @@ func (e *Engine) GetOnlineCount(ctx context.Context) int {
 		return 0
 	}
 
-	count, err := stats.GetOnlineCount(ctx)
-	if err != nil {
-		return 0
-	}
+	count, _ := stats.GetOnlineCount(ctx)
 	return count
 }
 
 func (e *Engine) Close() error {
 	e.mu.Lock()
 	instance := e.instance
-	stats := e.stats
 	e.instance = nil
-	e.stats = nil
 	e.users = nil
 	e.currentConfig = nil
 	e.logLevel = ""
 	e.mu.Unlock()
 
-	if stats != nil {
-		_ = stats.Close()
-	}
 	if instance != nil {
 		return instance.Close()
 	}
@@ -234,24 +207,14 @@ func (e *Engine) restorePreviousInstance(nodeConfig *panel.NodeConfig, users []p
 		return fmt.Errorf("failed to restart previous sing-box instance: %w", err)
 	}
 
-	statsClient, statsErr := connectStatsClient(e.statsListenAddr)
-	if statsErr != nil {
-		fmt.Printf("warning: failed to reconnect to sing-box stats API after rollback: %v\n", statsErr)
-	}
-
 	e.mu.Lock()
 	e.instance = instance
 	e.users = cloneUsers(users)
-	e.stats = statsClient
 	e.currentConfig = nodeConfig
 	e.logLevel = logLevel
 	e.mu.Unlock()
 
 	return nil
-}
-
-func connectStatsClient(listenAddr string) (*StatsClient, error) {
-	return NewStatsClient(listenAddr)
 }
 
 func cloneUsers(users []panel.User) []panel.User {

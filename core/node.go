@@ -38,7 +38,7 @@ func NewNode(cfg *config.Config, logger *zap.Logger) *Node {
 	})
 	return &Node{
 		cfg:         cfg,
-		engine:      singbox.NewEngine(cfg.StatsListenAddr, cfg.ClashAPIListenAddr, cfg.GoogleIPv6, limiter, limiter, nodeLogger),
+		engine:      singbox.NewEngine(cfg.ClashAPIListenAddr, cfg.GoogleIPv6, limiter, limiter, nodeLogger),
 		panelClient: panel.NewClient(cfg.PanelHost, cfg.PanelToken, cfg.NodeID),
 		logger:      nodeLogger,
 		limiter:     limiter,
@@ -83,9 +83,7 @@ func (n *Node) Start(ctx context.Context) error {
 	}
 	refreshAliveCounts(n.panelClient, n.limiter, n.logger, "start")
 
-	n.logger.Info("starting sing-box",
-		zap.String("stats_listen_addr", n.cfg.StatsListenAddr),
-	)
+	n.logger.Info("starting sing-box")
 	if err := n.engine.Start(nodeConfig, users, n.cfg.LogLevel); err != nil {
 		return err
 	}

@@ -11,6 +11,8 @@ import (
 	"github.com/juju/ratelimit"
 	"github.com/gofrs/uuid/v5"
 	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing/common/buf"
+	"github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 	"go.uber.org/zap"
 )
@@ -29,6 +31,7 @@ type LimitDecision struct {
 
 type limiterTracker struct {
 	limiter ConnectionLimiter
+	stats   *StatsTracker
 	rates   UserRateProvider
 	logger  *zap.Logger
 }
@@ -43,8 +46,8 @@ type UserRateProvider interface {
 	UserSpeedBucket(userName string) *ratelimit.Bucket
 }
 
-func newLimiterTracker(limiter ConnectionLimiter, rates UserRateProvider, logger *zap.Logger) *limiterTracker {
-	return &limiterTracker{limiter: limiter, rates: rates, logger: logger}
+func newLimiterTracker(limiter ConnectionLimiter, stats *StatsTracker, rates UserRateProvider, logger *zap.Logger) *limiterTracker {
+	return &limiterTracker{limiter: limiter, stats: stats, rates: rates, logger: logger}
 }
 
 func (t *limiterTracker) RoutedConnection(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) net.Conn {
@@ -61,10 +64,14 @@ func (t *limiterTracker) RoutedConnection(ctx context.Context, conn net.Conn, me
 		return conn
 	}
 	t.limiter.Register(meta)
+	if t.stats != nil {
+		t.stats.RegisterConn(meta.User, meta.ConnID)
+	}
 	conn = t.wrapSpeedLimit(meta.User, conn)
 	return &trackedConn{
 		Conn:    conn,
 		limiter: t.limiter,
+		stats:   t.stats,
 		meta:    meta,
 	}
 }
@@ -83,9 +90,13 @@ func (t *limiterTracker) RoutedPacketConnection(ctx context.Context, conn N.Pack
 		return conn
 	}
 	t.limiter.Register(meta)
+	if t.stats != nil {
+		t.stats.RegisterConn(meta.User, meta.ConnID)
+	}
 	return &trackedPacketConn{
 		PacketConn: conn,
 		limiter:    t.limiter,
+		stats:      t.stats,
 		meta:       meta,
 	}
 }
@@ -126,13 +137,33 @@ func buildConnMeta(metadata adapter.InboundContext) ConnMeta {
 type trackedConn struct {
 	net.Conn
 	limiter   ConnectionLimiter
+	stats     *StatsTracker
 	meta      ConnMeta
 	closeOnce sync.Once
+}
+
+func (c *trackedConn) Read(b []byte) (n int, err error) {
+	n, err = c.Conn.Read(b)
+	if n > 0 && c.stats != nil {
+		c.stats.AddTraffic(c.meta.User, int64(n), 0)
+	}
+	return
+}
+
+func (c *trackedConn) Write(b []byte) (n int, err error) {
+	n, err = c.Conn.Write(b)
+	if n > 0 && c.stats != nil {
+		c.stats.AddTraffic(c.meta.User, 0, int64(n))
+	}
+	return
 }
 
 func (c *trackedConn) Close() error {
 	c.closeOnce.Do(func() {
 		c.limiter.Unregister(c.meta)
+		if c.stats != nil {
+			c.stats.UnregisterConn(c.meta.User, c.meta.ConnID)
+		}
 	})
 	return c.Conn.Close()
 }
@@ -140,13 +171,33 @@ func (c *trackedConn) Close() error {
 type trackedPacketConn struct {
 	N.PacketConn
 	limiter   ConnectionLimiter
+	stats     *StatsTracker
 	meta      ConnMeta
 	closeOnce sync.Once
+}
+
+func (c *trackedPacketConn) ReadPacket(buffer *buf.Buffer) (metadata.Socksaddr, error) {
+	addr, err := c.PacketConn.ReadPacket(buffer)
+	if err == nil && c.stats != nil {
+		c.stats.AddTraffic(c.meta.User, int64(buffer.Len()), 0)
+	}
+	return addr, err
+}
+
+func (c *trackedPacketConn) WritePacket(buffer *buf.Buffer, destination metadata.Socksaddr) error {
+	err := c.PacketConn.WritePacket(buffer, destination)
+	if err == nil && c.stats != nil {
+		c.stats.AddTraffic(c.meta.User, 0, int64(buffer.Len()))
+	}
+	return err
 }
 
 func (c *trackedPacketConn) Close() error {
 	c.closeOnce.Do(func() {
 		c.limiter.Unregister(c.meta)
+		if c.stats != nil {
+			c.stats.UnregisterConn(c.meta.User, c.meta.ConnID)
+		}
 	})
 	return c.PacketConn.Close()
 }

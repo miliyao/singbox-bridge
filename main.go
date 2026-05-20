@@ -9,8 +9,8 @@ import (
 	"syscall"
 	"time"
 
-	"phantom-node/config"
-	"phantom-node/core"
+	"singbox-bridge/config"
+	"singbox-bridge/core"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"

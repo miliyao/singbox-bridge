@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"phantom-node/config"
-	"phantom-node/panel"
-	"phantom-node/singbox"
+	"singbox-bridge/config"
+	"singbox-bridge/panel"
+	"singbox-bridge/singbox"
 
 	"go.uber.org/zap"
 )

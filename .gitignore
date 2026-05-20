@@ -9,15 +9,15 @@ dist/
 *.test
 
 # Local binaries produced in this repo
-/phantom-node
-/phantom-node.exe
+/singbox-bridge
+/singbox-bridge.exe
 
 # Coverage
 coverage.out
 .gocache/
 .gotmp/
 gcm-diagnose.log
-phantom-node-linux-*-test
+singbox-bridge-linux-*-test
 
 # Secrets and local env files
 .env

@@ -8,8 +8,8 @@ import (
 	"reflect"
 	"testing"
 
-	"phantom-node/panel"
-	"phantom-node/singbox"
+	"singbox-bridge/panel"
+	"singbox-bridge/singbox"
 
 	"go.uber.org/zap"
 )

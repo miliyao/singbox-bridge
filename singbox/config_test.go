@@ -8,7 +8,7 @@ import (
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/option"
 
-	"phantom-node/panel"
+	"singbox-bridge/panel"
 )
 
 func TestBuildConfigUsesDefaultsAndPrependsSafetyRules(t *testing.T) {

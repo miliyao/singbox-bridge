@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"phantom-node/panel"
-	"phantom-node/singbox"
+	"singbox-bridge/panel"
+	"singbox-bridge/singbox"
 )
 
 func TestLimiterUpdateUsersReplacesUserMap(t *testing.T) {
@@ -183,10 +183,10 @@ func TestLimiterCheckUsesKnownOldIpBeforeAliveSnapshot(t *testing.T) {
 	}
 }
 
-func TestLimiterUpdateAliveCountsReplacesSnapshot(t *testing.T) {
+func TestLimiterUpdateAliveListReplacesSnapshot(t *testing.T) {
 	limiter := NewLimiter()
-	limiter.UpdateAliveCounts(map[int]int{1: 2, 2: 3})
-	limiter.UpdateAliveCounts(map[int]int{9: 1})
+	limiter.UpdateAliveList(panel.AliveList{1: {"r-1-0", "r-1-1"}, 2: {"r-2-0", "r-2-1", "r-2-2"}})
+	limiter.UpdateAliveList(panel.AliveList{9: {"r-9-0"}})
 
 	if len(limiter.aliveList) != 1 {
 		t.Fatalf("expected alive snapshot to be replaced, got %#v", limiter.aliveList)
@@ -202,7 +202,7 @@ func TestLimiterUpdateAliveCountsReplacesSnapshot(t *testing.T) {
 func TestLimiterBuildAlivePayloadDoesNotOverwriteAliveCounts(t *testing.T) {
 	limiter := NewLimiter()
 	limiter.UpdateUsers([]panel.User{{ID: 1, UUID: "uuid-a", DeviceLimit: 1}})
-	limiter.UpdateAliveCounts(map[int]int{1: 2})
+	limiter.UpdateAliveList(panel.AliveList{1: {"r-1-0", "r-1-1"}})
 
 	if payload := limiter.BuildAlivePayload(); len(payload) != 0 {
 		t.Fatalf("expected empty payload without active connections, got %#v", payload)

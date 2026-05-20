@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"phantom-node/panel"
+	"singbox-bridge/panel"
 
 	"go.uber.org/zap"
 )

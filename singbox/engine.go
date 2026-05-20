@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"phantom-node/panel"
+	"singbox-bridge/panel"
 
 	box "github.com/sagernet/sing-box"
 	"github.com/sagernet/sing-box/adapter"
@@ -200,13 +200,6 @@ func (e *Engine) GetOnlineCount(ctx context.Context) int {
 	}
 	return count
 }
-
-func (e *Engine) GetUsers() []panel.User {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return cloneUsers(e.users)
-}
-
 
 func (e *Engine) Close() error {
 	e.mu.Lock()

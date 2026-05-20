@@ -1,7 +1,6 @@
 package core
 
 import (
-	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -9,8 +8,8 @@ import (
 	"time"
 
 	"github.com/juju/ratelimit"
-	"phantom-node/panel"
-	"phantom-node/singbox"
+	"singbox-bridge/panel"
+	"singbox-bridge/singbox"
 )
 
 const defaultLimiterWindow = time.Minute
@@ -104,9 +103,6 @@ func (l *Limiter) UpdateUsers(users []panel.User) {
 	l.speedBucketByName = nextSpeedBuckets
 }
 
-func (l *Limiter) UpdateAliveCounts(alive map[int]int) {
-	l.UpdateAliveList(aliveListFromCounts(alive))
-}
 
 func (l *Limiter) UpdateAliveList(alive panel.AliveList) {
 	l.mu.Lock()
@@ -370,20 +366,6 @@ func (l *Limiter) containsIP(ips map[string]struct{}, ip string) bool {
 	return ok
 }
 
-func aliveListFromCounts(counts map[int]int) panel.AliveList {
-	alive := make(panel.AliveList, len(counts))
-	for uid, count := range counts {
-		if count < 0 {
-			count = 0
-		}
-		ips := make([]string, count)
-		for i := range ips {
-			ips[i] = fmt.Sprintf("remote-%d-%d", uid, i)
-		}
-		alive[uid] = ips
-	}
-	return alive
-}
 
 func stringSet(values []string) map[string]struct{} {
 	if len(values) == 0 {
@@ -400,11 +382,6 @@ func stringSet(values []string) map[string]struct{} {
 	return out
 }
 
-func (l *Limiter) Summary() string {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return fmt.Sprintf("users=%d active_users=%d active_ips=%d", len(l.userByName), len(l.activeConnByUser), len(l.activeConnByIP))
-}
 
 func (l *Limiter) Snapshot() LimiterSnapshot {
 	l.mu.Lock()

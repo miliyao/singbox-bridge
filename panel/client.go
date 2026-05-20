@@ -111,13 +111,6 @@ type TrafficData struct {
 
 type AliveList map[int][]string
 
-func (a AliveList) Counts() map[int]int {
-	counts := make(map[int]int, len(a))
-	for uid, ips := range a {
-		counts[uid] = len(ips)
-	}
-	return counts
-}
 
 type FlexibleInt int
 

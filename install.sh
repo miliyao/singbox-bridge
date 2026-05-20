@@ -6,13 +6,13 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-SERVICE_NAME="phantom-node"
+SERVICE_NAME="singbox-bridge"
 INSTALL_DIR="/usr/local/bin"
-ENV_FILE="/etc/phantom-node.env"
+ENV_FILE="/etc/singbox-bridge.env"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 BUILD_ROOT="/usr/local/src/${SERVICE_NAME}"
-REPO_URL="https://github.com/miliyao/phantom-node.git"
-RELEASE_REPO="miliyao/phantom-node"
+REPO_URL="https://github.com/miliyao/singbox-bridge.git"
+RELEASE_REPO="miliyao/singbox-bridge"
 REPO_REF="main"
 RELEASE_VERSION="latest"
 GO_VERSION="1.25.6"
@@ -33,7 +33,7 @@ Optional:
   --version=latest|v0.1.0
   --ref=main
   --source
-  --download-url=https://example.com/phantom-node
+  --download-url=https://example.com/singbox-bridge
 EOF
 }
 
@@ -310,12 +310,12 @@ enable_bbr() {
         return
     fi
 
-    cat > /etc/sysctl.d/99-phantom-node.conf <<'EOF'
+    cat > /etc/sysctl.d/99-singbox-bridge.conf <<'EOF'
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 EOF
 
-    sysctl -p /etc/sysctl.d/99-phantom-node.conf >/dev/null 2>&1 || true
+    sysctl -p /etc/sysctl.d/99-singbox-bridge.conf >/dev/null 2>&1 || true
 }
 
 start_service() {
@@ -332,7 +332,7 @@ start_service() {
 }
 
 print_summary() {
-    echo -e "${GREEN}phantom-node installer${NC}"
+    echo -e "${GREEN}singbox-bridge installer${NC}"
     echo -e "  node id: ${YELLOW}${NODE_ID}${NC}"
     echo -e "  panel:   ${YELLOW}${PANEL_HOST}${NC}"
     echo -e "  listen:  ${YELLOW}${LISTEN_PORT}${NC}"

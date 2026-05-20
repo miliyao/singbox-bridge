@@ -233,8 +233,8 @@ func lookupTrimmedEnv(key string) (string, bool) {
 
 func defaultTrafficStateFile() string {
 	if runtime.GOOS == "windows" {
-		return filepath.Join(os.TempDir(), "phantom-node", "pending-traffic.json")
+		return filepath.Join(os.TempDir(), "singbox-bridge", "pending-traffic.json")
 	}
 
-	return "/var/lib/phantom-node/pending-traffic.json"
+	return "/var/lib/singbox-bridge/pending-traffic.json"
 }

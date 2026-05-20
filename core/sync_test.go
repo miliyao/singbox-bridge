@@ -3,7 +3,7 @@ package core
 import (
 	"testing"
 
-	"phantom-node/panel"
+	"singbox-bridge/panel"
 )
 
 func TestHashUsersIgnoresInputOrder(t *testing.T) {

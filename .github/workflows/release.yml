@@ -40,19 +40,19 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: |
           mkdir -p dist
-          go build -tags with_utls -trimpath -ldflags="-s -w" -o "dist/phantom-node-linux-${GOARCH}" .
+          go build -tags with_utls -trimpath -ldflags="-s -w" -o "dist/singbox-bridge-linux-${GOARCH}" .
 
       - name: Checksum
         working-directory: dist
-        run: sha256sum "phantom-node-linux-${{ matrix.goarch }}" > "phantom-node-linux-${{ matrix.goarch }}.sha256"
+        run: sha256sum "singbox-bridge-linux-${{ matrix.goarch }}" > "singbox-bridge-linux-${{ matrix.goarch }}.sha256"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: phantom-node-linux-${{ matrix.goarch }}
+          name: singbox-bridge-linux-${{ matrix.goarch }}
           path: |
-            dist/phantom-node-linux-${{ matrix.goarch }}
-            dist/phantom-node-linux-${{ matrix.goarch }}.sha256
+            dist/singbox-bridge-linux-${{ matrix.goarch }}
+            dist/singbox-bridge-linux-${{ matrix.goarch }}.sha256
           if-no-files-found: error
 
   release:

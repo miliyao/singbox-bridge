@@ -1,7 +1,7 @@
 package core
 
 import (
-	"phantom-node/panel"
+	"singbox-bridge/panel"
 
 	"go.uber.org/zap"
 )

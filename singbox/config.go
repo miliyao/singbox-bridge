@@ -12,7 +12,7 @@ import (
 	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing/common/json/badoption"
 
-	"phantom-node/panel"
+	"singbox-bridge/panel"
 )
 
 const (

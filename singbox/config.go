@@ -28,7 +28,7 @@ const (
 )
 
 // BuildConfig translates the Xboard node payload into a sing-box runtime config.
-func BuildConfig(nodeConfig *panel.NodeConfig, users []panel.User, logLevel, statsListenAddr, clashAPIListenAddr string, googleIPv6 bool) (option.Options, error) {
+func BuildConfig(nodeConfig *panel.NodeConfig, users []panel.User, logLevel, statsListenAddr, clashAPIListenAddr string, googleIPv6 bool, cachePath string) (option.Options, error) {
 	if nodeConfig == nil {
 		return option.Options{}, fmt.Errorf("xboard node config must not be nil")
 	}
@@ -133,6 +133,7 @@ func BuildConfig(nodeConfig *panel.NodeConfig, users []panel.User, logLevel, sta
 		Experimental: &option.ExperimentalOptions{
 			CacheFile: &option.CacheFileOptions{
 				Enabled: true,
+				Path:    cachePath,
 			},
 			V2RayAPI: &option.V2RayAPIOptions{
 				Listen: statsListenAddr,

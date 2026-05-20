@@ -56,7 +56,7 @@ func RunDoctor(ctx context.Context, cfg *config.Config, logger *zap.Logger) Doct
 		add("users_valid", true, "all users have ids and uuids")
 	}
 
-	if _, err := singbox.BuildConfig(nodeConfig, users, cfg.LogLevel, cfg.StatsListenAddr, cfg.ClashAPIListenAddr, cfg.GoogleIPv6); err != nil {
+	if _, err := singbox.BuildConfig(nodeConfig, users, cfg.LogLevel, cfg.StatsListenAddr, cfg.ClashAPIListenAddr, cfg.GoogleIPv6, cfg.CacheFilePath); err != nil {
 		add("singbox_config", false, err.Error())
 	} else {
 		add("singbox_config", true, "config can be translated")

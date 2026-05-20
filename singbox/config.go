@@ -20,6 +20,7 @@ const (
 	defaultVLESSFlow                   = "xtls-rprx-vision"
 	inboundTag                         = "vless-in"
 	directOutboundTag                  = "direct"
+	directIPv6OutboundTag              = "direct-v6"
 	localDNSOutboundTag                = "local-dns"
 	defaultSniffTimeout                = time.Second
 	defaultTCPKeepAlive                = 5 * time.Minute
@@ -27,7 +28,7 @@ const (
 )
 
 // BuildConfig translates the Xboard node payload into a sing-box runtime config.
-func BuildConfig(nodeConfig *panel.NodeConfig, users []panel.User, listenPort int, logLevel, statsListenAddr, clashAPIListenAddr string) (option.Options, error) {
+func BuildConfig(nodeConfig *panel.NodeConfig, users []panel.User, listenPort int, logLevel, statsListenAddr, clashAPIListenAddr string, googleIPv6 bool) (option.Options, error) {
 	if nodeConfig == nil {
 		return option.Options{}, fmt.Errorf("xboard node config must not be nil")
 	}
@@ -149,6 +150,12 @@ func BuildConfig(nodeConfig *panel.NodeConfig, users []panel.User, listenPort in
 		}
 	}
 
+	// Google IPv6 直连：添加专用 outbound 和路由规则
+	if googleIPv6 {
+		opts.Outbounds = append(opts.Outbounds, googleIPv6Outbound())
+		opts.Route.Rules = append(opts.Route.Rules, googleIPv6Rule())
+	}
+
 	return opts, nil
 }
 
@@ -226,6 +233,37 @@ func routeRule(raw option.RawDefaultRule) option.Rule {
 				Action: C.RuleActionTypeRoute,
 				RouteOptions: option.RouteActionOptions{
 					Outbound: directOutboundTag,
+				},
+			},
+		},
+	}
+}
+
+func googleIPv6Outbound() option.Outbound {
+	var ds option.DomainStrategy
+	_ = ds.UnmarshalJSON([]byte(`"prefer_ipv6"`))
+	return option.Outbound{
+		Type: "direct",
+		Tag:  directIPv6OutboundTag,
+		Options: &option.DirectOutboundOptions{
+			DialerOptions: option.DialerOptions{
+				DomainStrategy: ds,
+			},
+		},
+	}
+}
+
+func googleIPv6Rule() option.Rule {
+	return option.Rule{
+		Type: C.RuleTypeDefault,
+		DefaultOptions: option.DefaultRule{
+			RawDefaultRule: option.RawDefaultRule{
+				Geosite: badoption.Listable[string]{"google"},
+			},
+			RuleAction: option.RuleAction{
+				Action: C.RuleActionTypeRoute,
+				RouteOptions: option.RouteActionOptions{
+					Outbound: directIPv6OutboundTag,
 				},
 			},
 		},

@@ -45,7 +45,7 @@ func NewNode(cfg *config.Config, logger *zap.Logger) *Node {
 	})
 	return &Node{
 		cfg:         cfg,
-		engine:      singbox.NewEngine(cfg.StatsListenAddr, cfg.ClashAPIListenAddr, limiter, limiter, logger),
+		engine:      singbox.NewEngine(cfg.StatsListenAddr, cfg.ClashAPIListenAddr, cfg.GoogleIPv6, limiter, limiter, logger),
 		panelClient: panel.NewClient(cfg.PanelHost, cfg.PanelToken, cfg.NodeID),
 		logger:      logger,
 		limiter:     limiter,

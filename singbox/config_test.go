@@ -27,7 +27,7 @@ func TestBuildConfigUsesDefaultsAndPrependsSafetyRules(t *testing.T) {
 	}
 	users := []panel.User{{ID: 1, UUID: "uuid-1"}}
 
-	opts, err := BuildConfig(nodeConfig, users, 443, "info", "127.0.0.1:10085", "")
+	opts, err := BuildConfig(nodeConfig, users, 443, "info", "127.0.0.1:10085", "", false)
 	if err != nil {
 		t.Fatalf("BuildConfig returned error: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestBuildConfigEnablesClashAPIWhenConfigured(t *testing.T) {
 		},
 	}
 
-	opts, err := BuildConfig(nodeConfig, nil, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086")
+	opts, err := BuildConfig(nodeConfig, nil, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086", false)
 	if err != nil {
 		t.Fatalf("BuildConfig returned error: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestBuildConfigRejectsUnsupportedNetwork(t *testing.T) {
 		},
 	}
 
-	if _, err := BuildConfig(nodeConfig, nil, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086"); err == nil {
+	if _, err := BuildConfig(nodeConfig, nil, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086", false); err == nil {
 		t.Fatal("expected unsupported network error")
 	}
 }
@@ -128,7 +128,7 @@ func TestBuildConfigAcceptsSpeedLimit(t *testing.T) {
 		},
 	}
 
-	_, err := BuildConfig(nodeConfig, []panel.User{{ID: 1, UUID: "uuid-1", SpeedLimit: 10}}, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086")
+	_, err := BuildConfig(nodeConfig, []panel.User{{ID: 1, UUID: "uuid-1", SpeedLimit: 10}}, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086", false)
 	if err != nil {
 		t.Fatalf("BuildConfig returned error: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestBuildConfigAcceptsRouteObject(t *testing.T) {
 		Routes: json.RawMessage(`{"rules":[{"domain_suffix":["example.com"],"outbound":"direct"}],"final":"direct"}`),
 	}
 
-	opts, err := BuildConfig(nodeConfig, nil, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086")
+	opts, err := BuildConfig(nodeConfig, nil, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086", false)
 	if err != nil {
 		t.Fatalf("BuildConfig returned error: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestBuildConfigRejectsInvalidRoutePayload(t *testing.T) {
 		Routes: json.RawMessage(`{"rules":[{"type":"unknown"}]}`),
 	}
 
-	if _, err := BuildConfig(nodeConfig, nil, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086"); err == nil {
+	if _, err := BuildConfig(nodeConfig, nil, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086", false); err == nil {
 		t.Fatal("expected route decode error")
 	}
 }
@@ -184,7 +184,7 @@ func TestBuildConfigConvertsLegacyRouteRules(t *testing.T) {
 		]`),
 	}
 
-	opts, err := BuildConfig(nodeConfig, nil, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086")
+	opts, err := BuildConfig(nodeConfig, nil, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086", false)
 	if err != nil {
 		t.Fatalf("BuildConfig returned error: %v", err)
 	}
@@ -195,3 +195,48 @@ func TestBuildConfigConvertsLegacyRouteRules(t *testing.T) {
 		t.Fatalf("unexpected legacy route final: %q", opts.Route.Final)
 	}
 }
+
+func TestBuildConfigEnablesGoogleIPv6(t *testing.T) {
+	nodeConfig := &panel.NodeConfig{
+		Protocol: "vless",
+		Network:  "tcp",
+		TLSSettings: panel.TLSSettings{
+			ServerName: "example.com",
+			PrivateKey: "private-key",
+		},
+	}
+
+	opts, err := BuildConfig(nodeConfig, nil, 443, "info", "127.0.0.1:10085", "127.0.0.1:10086", true)
+	if err != nil {
+		t.Fatalf("BuildConfig returned error: %v", err)
+	}
+
+	// 检查是否有 direct-v6 outbound
+	var foundOutbound bool
+	for _, outbound := range opts.Outbounds {
+		if outbound.Tag == "direct-v6" && outbound.Type == "direct" {
+			foundOutbound = true
+			if directOpts, ok := outbound.Options.(*option.DirectOutboundOptions); !ok || uint8(directOpts.DomainStrategy) != 2 {
+				t.Fatalf("unexpected direct-v6 outbound options: %#v", outbound.Options)
+			}
+		}
+	}
+	if !foundOutbound {
+		t.Fatal("expected direct-v6 outbound not found")
+	}
+
+	// 检查是否有 google 路由规则
+	var foundRule bool
+	for _, rule := range opts.Route.Rules {
+		if len(rule.DefaultOptions.Geosite) == 1 && rule.DefaultOptions.Geosite[0] == "google" {
+			foundRule = true
+			if rule.DefaultOptions.RouteOptions.Outbound != "direct-v6" {
+				t.Fatalf("unexpected outbound for google rule: %q", rule.DefaultOptions.RouteOptions.Outbound)
+			}
+		}
+	}
+	if !foundRule {
+		t.Fatal("expected google route rule not found")
+	}
+}
+

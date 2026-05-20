@@ -34,15 +34,17 @@ type Engine struct {
 	logLevel            string
 	statsListenAddr     string
 	clashAPIListenAddr string
+	googleIPv6          bool
 	limiter             ConnectionLimiter
 	rates               UserRateProvider
 	logger              *zap.Logger
 }
 
-func NewEngine(statsListenAddr, clashAPIListenAddr string, limiter ConnectionLimiter, rates UserRateProvider, logger *zap.Logger) *Engine {
+func NewEngine(statsListenAddr, clashAPIListenAddr string, googleIPv6 bool, limiter ConnectionLimiter, rates UserRateProvider, logger *zap.Logger) *Engine {
 	return &Engine{
 		statsListenAddr:    statsListenAddr,
 		clashAPIListenAddr: clashAPIListenAddr,
+		googleIPv6:          googleIPv6,
 		limiter:            limiter,
 		rates:              rates,
 		logger:             logger,
@@ -151,7 +153,7 @@ func (e *Engine) ReloadUsers(nodeConfig *panel.NodeConfig, newUsers []panel.User
 }
 
 func (e *Engine) createBox(nodeConfig *panel.NodeConfig, users []panel.User, listenPort int, logLevel string) (*box.Box, error) {
-	opts, err := BuildConfig(nodeConfig, users, listenPort, logLevel, e.statsListenAddr, e.clashAPIListenAddr)
+	opts, err := BuildConfig(nodeConfig, users, listenPort, logLevel, e.statsListenAddr, e.clashAPIListenAddr, e.googleIPv6)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate sing-box config: %w", err)
 	}

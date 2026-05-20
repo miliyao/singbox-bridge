@@ -47,6 +47,8 @@ type Config struct {
 	MaxNewConnPerIPPerMin   int
 	TrafficPendingMaxUsers  int
 
+	GoogleIPv6 bool
+
 	SyncIntervalExplicit   bool
 	ReportIntervalExplicit bool
 }
@@ -113,6 +115,8 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	googleIPv6 := loadOptionalBoolEnv("GOOGLE_IPV6")
+
 	return &Config{
 		PanelHost:               panelHost,
 		PanelToken:              panelToken,
@@ -130,6 +134,7 @@ func Load() (*Config, error) {
 		MaxNewConnPerUserPerMin: maxNewConnPerUser,
 		MaxNewConnPerIPPerMin:   maxNewConnPerIP,
 		TrafficPendingMaxUsers:  trafficPendingMaxUsers,
+		GoogleIPv6:              googleIPv6,
 		SyncIntervalExplicit:    syncExplicit,
 		ReportIntervalExplicit:  reportExplicit,
 	}, nil
@@ -229,6 +234,20 @@ func lookupTrimmedEnv(key string) (string, bool) {
 		return "", false
 	}
 	return value, true
+}
+
+// loadOptionalBoolEnv 读取布尔环境变量，支持 "true"/"1"/"yes" 为真。
+func loadOptionalBoolEnv(key string) bool {
+	raw, ok := lookupTrimmedEnv(key)
+	if !ok {
+		return false
+	}
+	switch strings.ToLower(raw) {
+	case "true", "1", "yes":
+		return true
+	default:
+		return false
+	}
 }
 
 func defaultTrafficStateFile() string {

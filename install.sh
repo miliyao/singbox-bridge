@@ -22,6 +22,7 @@ BUILD_TAGS="with_utls"
 LISTEN_PORT=443
 DOWNLOAD_URL=""
 INSTALL_FROM_SOURCE=false
+GOOGLE_IPV6=false
 
 usage() {
     cat <<'EOF'
@@ -30,6 +31,7 @@ Usage:
 
 Optional:
   --port=443
+  --google-ipv6
   --version=latest|v0.1.0
   --ref=main
   --source
@@ -63,6 +65,7 @@ parse_args() {
             --panel=*) PANEL_HOST="${arg#*=}" ;;
             --token=*) PANEL_TOKEN="${arg#*=}" ;;
             --port=*) LISTEN_PORT="${arg#*=}" ;;
+            --google-ipv6) GOOGLE_IPV6=true ;;
             --version=*) RELEASE_VERSION="${arg#*=}" ;;
             --ref=*) REPO_REF="${arg#*=}" ;;
             --source) INSTALL_FROM_SOURCE=true ;;
@@ -254,6 +257,7 @@ PANEL_HOST=${PANEL_HOST}
 PANEL_TOKEN=${PANEL_TOKEN}
 NODE_ID=${NODE_ID}
 LISTEN_PORT=${LISTEN_PORT}
+GOOGLE_IPV6=${GOOGLE_IPV6:-false}
 EOF
     chmod 600 "$ENV_FILE"
 }
@@ -262,7 +266,7 @@ write_service_file() {
     log_info "Writing systemd service..."
     cat > "$SERVICE_FILE" <<EOF
 [Unit]
-Description=Phantom Xboard Node (ID: ${NODE_ID})
+Description=singbox-bridge Xboard Node (ID: ${NODE_ID})
 After=network-online.target
 Wants=network-online.target
 

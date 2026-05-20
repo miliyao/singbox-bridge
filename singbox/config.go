@@ -215,11 +215,30 @@ func mergeDefaultRouteOptions(route *option.RouteOptions) *option.RouteOptions {
 
 func defaultSafetyRules() []option.Rule {
 	return []option.Rule{
+		// 1. 拦截 BitTorrent (P2P)
 		rejectRule(option.RawDefaultRule{
 			Protocol: badoption.Listable[string]{C.ProtocolBitTorrent},
 		}),
+		// 2. 拦截本地和私有 IP
 		routeRule(option.RawDefaultRule{
 			IPIsPrivate: true,
+		}),
+		// 3. 拦截 SMTP 发信端口 (防止垃圾邮件)
+		rejectRule(option.RawDefaultRule{
+			Port: badoption.Listable[uint16]{25},
+		}),
+		// 4. 拦截常见高危与入侵端口
+		rejectRule(option.RawDefaultRule{
+			Port:      badoption.Listable[uint16]{445, 3389},
+			PortRange: badoption.Listable[string]{"135:139"},
+		}),
+		// 5. 拦截中国大陆 IP (防止回源浪费流量)
+		rejectRule(option.RawDefaultRule{
+			GeoIP: badoption.Listable[string]{"cn"},
+		}),
+		// 6. 拦截中国大陆域名
+		rejectRule(option.RawDefaultRule{
+			Geosite: badoption.Listable[string]{"cn"},
 		}),
 	}
 }

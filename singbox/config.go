@@ -223,7 +223,7 @@ func defaultRuleSets() []option.RuleSet {
 			Tag:    "geoip-cn",
 			Format: "binary",
 			RemoteOptions: option.RemoteRuleSet{
-				URL:            "https://fastly.jsdelivr.net/gh/lyc8503/sing-box-rules@rule-set/geoip-cn.srs",
+				URL:            "https://fastly.jsdelivr.net/gh/lyc8503/sing-box-rules@rule-set-geoip/geoip-cn.srs",
 				DownloadDetour: directOutboundTag,
 			},
 		},
@@ -232,7 +232,7 @@ func defaultRuleSets() []option.RuleSet {
 			Tag:    "geosite-cn",
 			Format: "binary",
 			RemoteOptions: option.RemoteRuleSet{
-				URL:            "https://fastly.jsdelivr.net/gh/lyc8503/sing-box-rules@rule-set/geosite-cn.srs",
+				URL:            "https://fastly.jsdelivr.net/gh/lyc8503/sing-box-rules@rule-set-geosite/geosite-cn.srs",
 				DownloadDetour: directOutboundTag,
 			},
 		},

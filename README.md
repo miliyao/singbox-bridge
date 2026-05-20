@@ -22,10 +22,10 @@
 - 🚦 **高级速率与连接控制**:
   - 精确到用户的并发 TCP 连接数限制。
   - 支持 per-user 和 per-IP 的每分钟新连接建立速率（CPS）限制。
+  - 支持限制用户同时在线 IP/设备数量（自动同步 Xboard 面板下发的 `DeviceLimit`，并支持集群节点间全局设备数协同限制）。
   - 自带 BitTorrent 等 P2P 流量拦截规则。
 - 🌐 **Google IPv6 分流直连**: 开启后，自动通过 IPv6 直连所有 Google 相关域名，有效节约 IPv4 流量并防范谷歌验证码。
 - 🛠️ **一键诊断工具**: 内置 `singbox-bridge doctor` 命令，一键检查面板连通性、核心配置、本地端口冲突等。
-- 📊 **状态端点**: 内置 `/status` 和 `/health` JSON API 状态暴露。
 
 ---
 

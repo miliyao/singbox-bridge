@@ -4,43 +4,50 @@
 [![Go Version](https://img.shields.io/github/go-mod/go-version/miliyao/singbox-bridge)](https://golang.org)
 [![License](https://img.shields.io/github/license/miliyao/singbox-bridge)](LICENSE)
 
-`singbox-bridge` 是一个专为 **Xboard (UniProxy API)** 面板深度定制、极致轻量且高性能的 **VLESS-Reality** 嵌入式节点后端程序。
+`singbox-bridge` 是一个面向 Xboard（UniProxy API）的轻量级 VLESS-Reality 节点后端，基于 Go 直接嵌入 sing-box 内核，减少传统多进程代理架构中的额外开销，重点优化 1C1G VPS 下的 CPU、内存与连接管理表现。
 
-它通过 **Go 语言级嵌入 API** 直接集成 [sing-box](https://github.com/SagerNet/sing-box) 内核，彻底告别了传统代理后端复杂的子进程调用和多核心冗余抽象。项目基于 **Unix 哲学** 设计，采用**全内存无盘化缓存**与**零端口暴露流量跟踪**技术，提供无与伦比的运行效率、内存控制和数据安全保密性。
+当前版本已实现原子化流量累加、分段计数限速、活跃 IP 引用计数、低分配用户哈希生成和运行时软内存保护。性能收益数据将以标准化压测报告为准，随版本持续更新。
 
 ---
 
-## 核心特性
+## 优化设计与核心实现
 
-- ⚡ **嵌入式集成**: 摒弃多进程架构，内核与主控运行在同一内存空间，核心源码仅约 2,800 行，无任何运行时子进程 IPC 开销。
-- 🛡️ **零端口暴露流量监控**: 彻底废弃实验性 gRPC/TCP 本地 API 监听，通过内核路由层 `limiterTracker` 实施纯内存级流量与连接状态劫持，规避本地端口被恶意探测的风险。
-- 👥 **单进程多实例**: 支持以逗号分隔的节点 ID 环境变量（如 `NODE_ID="5,6"`），单个进程内自动并发运行多个独立的节点实例，共享内存与线程池，运维极简。
-- 💾 **无盘化缓存与流量缓冲**: 移除了本地 SQLite 缓存文件，全面启用内存会话存储。若遭遇网络故障或面板宕机，待上报流量自动落盘暂存（文件名根据节点 ID 自动特化隔离），恢复后补报，绝不漏记。
-- 🔒 **Reality 原生支持**: 专注于当前最健壮的 VLESS-Reality-Vision 防封锁协议组合。
-- 🔄 **原子级热重载与安全回滚**: 监测到配置/用户变更时瞬间无缝重载。若新配置启动失败，自动回滚至上一稳定运行版本，保障服务持续可用。
-- 🚦 **双维连接与频率控制**:
-  - 精确到用户的并发 TCP 连接数限制。
-  - 支持 per-user 和 per-IP 的每分钟新连接建立速率（CPS）限制。
-  - 自动同步面板的设备数限制（`DeviceLimit`），并支持集群节点间全局设备数协同限制。
-  - 自带 BitTorrent 等 P2P 流量拦截与高危端口封禁规则。
-- 🌐 **Google IPv6 分流直连**: 开启后自动通过 IPv6 直连所有 Google 相关域名，有效节约 IPv4 流量并防范谷歌验证码。
-- 🛠️ **一键诊断工具**: 内置 `singbox-bridge doctor` 诊断模式，一键排查面板连通性、证书配置及本地冲突。
+为了保证在 1C1G 等低资源宿主机上长期稳定运行，本项目对关键路径进行了针对性重构：
+
+### 1. 热路径流量统计优化
+在 TCP 和 UDP 的数据收发热路径中，使用连接级局部 `atomic` 计数缓冲。当单连接累积流量达到 **1MB** 时，通过 `atomic.SwapInt64` 交换数据并刷入全局 `StatsTracker`，从而降低全局互斥锁的竞争频率；连接关闭时执行强制清算，保证计量精度不受影响。
+
+### 2. $O(1)$ 分段计数 CPS 限制器
+每分钟新建连接数（CPS）限制器由时间戳切片滑动窗口算法重构为分段计数结构。新建连接时的判定复杂度降为 $O(1)$，消除了频繁的切片复制与遍历开销。在更新用户配置时自动执行冷数据清理，防止缓存表膨胀。
+
+### 3. 双层活跃 IP 引用计数
+在连接注册与注销阶段实时更新双层 IP 引用计数 Map。获取用户当前活跃 IP 列表的复杂度从 $O(\text{当前连接数})$ 降为 $O(\text{当前活跃IP数})$，避免了每次判定设备限制时全量遍历连接和对 IP 字符串进行重复转换的开销。
+
+### 4. 零拷贝流式哈希计算
+在定时同步用户配置时，直接对排序后的用户列表执行流式二进制哈希计算。通过 `binary.Write` 将 ID、SpeedLimit 与 UUID 的原始字节写入 `sha256.New()`，避免了生成大量临时 `"ID:UUID:Limit"` 字符串与 `strings.Builder` 合并强转带来的堆内存分配与 GC 回收压力。
+
+### 5. 原子自增连接追踪 ID
+移除了对第三方 UUID 生成库的依赖，在建立连接时采用全局原子递增的 `uint64` 短序列（转化为 36 进制字符串）作为内存追踪键值，消除了生成随机 UUID 时的全局锁竞争和系统调用。
+
+### 6. 自适应内存软限制保护
+在未配置 `GOMEMLIMIT` 环境变量的低配环境中，程序启动时默认设置 `debug.SetMemoryLimit(750MiB)`。在突发大流量或配置重载引起瞬时内存上涨时，引导 Go 运行时执行更积极的垃圾回收，降低被内核 OOM Killer 终止服务的风险。
+
+### 7. 宿主机内核与系统参数探测
+程序启动时在 Linux 平台自动检测 TCP BBR 拥塞控制算法状态以及当前进程的最大文件描述符软限制（`nofile`）。若检测到配置未达到优化推荐值，会在日志中输出相应的优化指引。
 
 ---
 
 ## 环境变量配置项
-
-通过设置以下环境变量，即可完全掌控 `singbox-bridge` 的运行行为：
 
 | 变量名 | 默认值 | 说明 |
 |--------|--------|------|
 | `PANEL_HOST` | *(必填)* | Xboard 面板的 HTTP 接口地址 |
 | `PANEL_TOKEN` | *(必填)* | 面板 UniProxy 通信密钥 |
 | `NODE_ID` | *(必填)* | 节点 ID（支持单节点如 `5`，或多节点列表如 `5,6,7` 以启用单进程多实例模式） |
-| `LISTEN_PORT` | `443` | 节点本地监听端口（由 Xboard 控制，多实例时各自监听面板指定的端口） |
+| `LISTEN_PORT` | `443` | 节点本地监听端口（多实例模式下监听各自面板指定的端口） |
 | `LOG_LEVEL` | `info` | 日志级别 (`debug`, `info`, `warn`, `error`) |
 | `GOOGLE_IPV6` | `false` | 是否开启 Google 域名 IPv6 直连分流 |
-| `TRAFFIC_STATE_FILE` | `/var/lib/singbox-bridge/pending-traffic.json` | 待上报流量落盘缓冲路径（多实例模式下自动特化为 `*-node{id}.json`） |
+| `TRAFFIC_STATE_FILE` | *(自适应)* | 离线暂存流量落盘文件。Linux 默认路径为 `/var/lib/singbox-bridge/pending-traffic.json`（多节点模式自动特化隔离） |
 | `MAX_CONN_PER_USER` | `128` | 每用户允许的最大 TCP 并发连接数 |
 | `MAX_CONN_PER_IP` | `64` | 单个 IP 允许的最大并发连接数 |
 | `MAX_NEW_CONN_PER_USER_PER_MIN` | `600` | 每用户每分钟最大新连接数 |
@@ -48,27 +55,21 @@
 
 ---
 
-## 快速部署
+## 部署与运维
 
-### 1. 一键脚本安装 (Systemd)
+### 1. 使用一键脚本安装 (Systemd)
 
-使用官方维护的一键安装脚本，自动安装最新 Release 的二进制文件或本地编译，并注册为 Systemd 服务：
+对于需要启用最新优化版本的环境，推荐使用 `--source` 参数，脚本将自动配置 Go 环境并从 GitHub `main` 分支拉取源码在本地编译安装：
 
 ```bash
-# 单节点部署
-curl -fsSL https://raw.githubusercontent.com/miliyao/singbox-bridge/main/install.sh | bash -s -- --node-id=5 --panel=https://panel.example.com --token=secret_token
-
-# 多节点单进程并发部署 (如 5 和 6 节点)
-curl -fsSL https://raw.githubusercontent.com/miliyao/singbox-bridge/main/install.sh | bash -s -- --node-id=5,6 --panel=https://panel.example.com --token=secret_token
-
-# 开启 Google IPv6 直连分流
-curl -fsSL https://raw.githubusercontent.com/miliyao/singbox-bridge/main/install.sh | bash -s -- --node-id=5,6 --panel=https://panel.example.com --token=secret_token --google-ipv6
+# 源码编译安装示例（需根据实际情况替换 panel 与 token 占位符）
+curl -fsSL https://raw.githubusercontent.com/miliyao/singbox-bridge/main/install.sh | bash -s -- --node-id=5,6 --panel=https://panel.example.com --token=secret_token --google-ipv6 --source
 ```
 
-### 2. 状态查询与运维
+### 2. 常用管理命令
 
 ```bash
-# 查看服务运行状态及并发实例日志
+# 查看服务状态及运行日志
 systemctl status singbox-bridge
 journalctl -u singbox-bridge -n 100 --no-pager
 
@@ -77,5 +78,4 @@ env $(cat /etc/singbox-bridge.env | xargs) /usr/local/bin/singbox-bridge doctor
 ```
 
 > [!NOTE]
-> 当 `singbox-bridge` 后台服务正在运行时，执行 `doctor` 诊断命令中的 `listen_port` 检查项报告 `bind: address already in use` 属于正常现象，这说明后台服务已成功占用了该端口提供服务。
-
+> 运行自检工具时，因后台常驻服务正在占用监听端口，导致 `listen_port` 检查项提示 `bind: address already in use` 属于正常状态。

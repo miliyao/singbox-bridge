@@ -4,78 +4,176 @@
 [![Go Version](https://img.shields.io/github/go-mod/go-version/miliyao/singbox-bridge)](https://golang.org)
 [![License](https://img.shields.io/github/license/miliyao/singbox-bridge)](LICENSE)
 
-`singbox-bridge` 是一个面向 Xboard（UniProxy API）的轻量级 VLESS-Reality 节点后端，基于 Go 直接嵌入 sing-box 内核，减少传统多进程代理架构中的额外开销，重点优化 1C1G VPS 下的 CPU、内存与连接管理表现。
-
-当前版本已实现原子化流量累加、分段计数限速、活跃 IP 引用计数、低分配用户哈希生成和运行时软内存保护。性能收益数据将以标准化压测报告为准，随版本持续更新。
+`singbox-bridge` 是一个面向 [Xboard](https://github.com/cedar2025/Xboard)（UniProxy API）的轻量级节点后端，将 sing-box 内核直接嵌入单一进程运行，针对 **1C1G VPS** 环境进行了深度优化，重点覆盖热路径并发性能、内存可控性与连接安全管理。
 
 ---
 
-## 优化设计与核心实现
+## 特性概览
 
-为了保证在 1C1G 等低资源宿主机上长期稳定运行，本项目对关键路径进行了针对性重构：
-
-### 1. 热路径流量统计优化
-在 TCP 和 UDP 的数据收发热路径中，使用连接级局部 `atomic` 计数缓冲。当单连接累积流量达到 **1MB** 时，通过 `atomic.SwapInt64` 交换数据并刷入全局 `StatsTracker`，从而降低全局互斥锁的竞争频率；连接关闭时执行强制清算，保证计量精度不受影响。
-
-### 2. $O(1)$ 分段计数 CPS 限制器
-每分钟新建连接数（CPS）限制器由时间戳切片滑动窗口算法重构为分段计数结构。新建连接时的判定复杂度降为 $O(1)$，消除了频繁的切片复制与遍历开销。在更新用户配置时自动执行冷数据清理，防止缓存表膨胀。
-
-### 3. 双层活跃 IP 引用计数
-在连接注册与注销阶段实时更新双层 IP 引用计数 Map。获取用户当前活跃 IP 列表的复杂度从 $O(\text{当前连接数})$ 降为 $O(\text{当前活跃IP数})$，避免了每次判定设备限制时全量遍历连接和对 IP 字符串进行重复转换的开销。
-
-### 4. 零拷贝流式哈希计算
-在定时同步用户配置时，直接对排序后的用户列表执行流式二进制哈希计算。通过 `binary.Write` 将 ID、SpeedLimit 与 UUID 的原始字节写入 `sha256.New()`，避免了生成大量临时 `"ID:UUID:Limit"` 字符串与 `strings.Builder` 合并强转带来的堆内存分配与 GC 回收压力。
-
-### 5. 原子自增连接追踪 ID
-移除了对第三方 UUID 生成库的依赖，在建立连接时采用全局原子递增的 `uint64` 短序列（转化为 36 进制字符串）作为内存追踪键值，消除了生成随机 UUID 时的全局锁竞争和系统调用。
-
-### 6. 自适应内存软限制保护
-在未配置 `GOMEMLIMIT` 环境变量的低配环境中，程序启动时默认设置 `debug.SetMemoryLimit(750MiB)`。在突发大流量或配置重载引起瞬时内存上涨时，引导 Go 运行时执行更积极的垃圾回收，降低被内核 OOM Killer 终止服务的风险。
-
-### 7. 宿主机内核与系统参数探测
-程序启动时在 Linux 平台自动检测 TCP BBR 拥塞控制算法状态以及当前进程的最大文件描述符软限制（`nofile`）。若检测到配置未达到优化推荐值，会在日志中输出相应的优化指引。
+- **嵌入式 sing-box 内核**：无需外部进程，通过 Go API 直接驱动，减少 IPC 开销与进程间同步延迟
+- **无锁流量统计热路径**：`sync.Map` + `atomic` 组合，`AddTraffic` 完全免除互斥锁争用
+- **分段 CPS 限速器**：$O(1)$ 新建连接速率判定，支持按用户与按 IP 双维度控制
+- **双层 IP 引用计数**：设备数统计从 $O(\text{连接数})$ 降为 $O(\text{活跃IP数})$
+- **确定性零分配哈希**：流式 SHA-256 二进制写入，配置变更检测幂等且无碰撞
+- **离线流量持久化**：面板宕机期间流量缓冲落盘，恢复后自动重试合并上报
+- **单进程多节点**：一个进程可同时运行多个 `NODE_ID`，共享内存与运行时资源
+- **运行时内存保护**：自动设置 `GOMEMLIMIT = 750MiB`（未显式配置时），引导 GC 主动介入，降低 OOM 风险
 
 ---
 
-## 环境变量配置项
+## 快速部署
+
+### 一键脚本安装（推荐，Systemd）
+
+```bash
+# 从 main 分支拉取源码编译安装（适用于需要最新优化的场景）
+curl -fsSL https://raw.githubusercontent.com/miliyao/singbox-bridge/main/install.sh | bash -s -- \
+  --node-id=5 \
+  --panel=https://panel.example.com \
+  --token=your_token \
+  --google-ipv6 \
+  --source
+```
+
+多节点示例（单进程同时运行节点 5、6、7）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/miliyao/singbox-bridge/main/install.sh | bash -s -- \
+  --node-id=5,6,7 \
+  --panel=https://panel.example.com \
+  --token=your_token \
+  --source
+```
+
+### 手动编译
+
+```bash
+git clone https://github.com/miliyao/singbox-bridge.git
+cd singbox-bridge
+go build -o singbox-bridge .
+```
+
+---
+
+## 配置项
+
+配置通过环境变量注入，也可写入 `/etc/singbox-bridge.env` 文件（`KEY=VALUE` 格式，支持 `#` 注释行）。
+
+### 必填项
+
+| 变量名 | 说明 |
+|--------|------|
+| `PANEL_HOST` | Xboard 面板的 HTTP 接口地址（如 `https://panel.example.com`） |
+| `PANEL_TOKEN` | 面板 UniProxy 通信密钥 |
+| `NODE_ID` | 节点 ID，支持单节点（`5`）或逗号分隔的多节点列表（`5,6,7`） |
+
+### 可选项
 
 | 变量名 | 默认值 | 说明 |
 |--------|--------|------|
-| `PANEL_HOST` | *(必填)* | Xboard 面板的 HTTP 接口地址 |
-| `PANEL_TOKEN` | *(必填)* | 面板 UniProxy 通信密钥 |
-| `NODE_ID` | *(必填)* | 节点 ID（支持单节点如 `5`，或多节点列表如 `5,6,7` 以启用单进程多实例模式） |
-| `LISTEN_PORT` | `443` | 节点本地监听端口（多实例模式下监听各自面板指定的端口） |
-| `LOG_LEVEL` | `info` | 日志级别 (`debug`, `info`, `warn`, `error`) |
-| `GOOGLE_IPV6` | `false` | 是否开启 Google 域名 IPv6 直连分流 |
-| `TRAFFIC_STATE_FILE` | *(自适应)* | 离线暂存流量落盘文件。Linux 默认路径为 `/var/lib/singbox-bridge/pending-traffic.json`（多节点模式自动特化隔离） |
-| `MAX_CONN_PER_USER` | `128` | 每用户允许的最大 TCP 并发连接数 |
-| `MAX_CONN_PER_IP` | `64` | 单个 IP 允许的最大并发连接数 |
-| `MAX_NEW_CONN_PER_USER_PER_MIN` | `600` | 每用户每分钟最大新连接数 |
-| `MAX_NEW_CONN_PER_IP_PER_MIN` | `300` | 单 IP 每分钟最大新连接数 |
+| `SYNC_INTERVAL` | `60` | 从面板拉取用户与节点配置的间隔（秒），优先采用面板下发的 `pull_interval` |
+| `REPORT_INTERVAL` | `60` | 上报流量数据的间隔（秒），优先采用面板下发的 `push_interval` |
+| `LOG_LEVEL` | `info` | 日志级别（`debug` / `info` / `warn` / `error`） |
+| `GOOGLE_IPV6` | `false` | 是否启用 Google 域名 IPv6 直连分流 |
+| `CLASH_API_LISTEN_ADDR` | *(禁用)* | 启用 Clash 元数据 API 并绑定的监听地址（如 `127.0.0.1:9090`） |
+| `TRAFFIC_STATE_FILE` | `/var/lib/singbox-bridge/pending-traffic.json` | 离线暂存流量的落盘路径；多节点模式下自动按节点 ID 隔离 |
+| `MAX_CONN_PER_USER` | `128` | 每用户允许的最大并发 TCP 连接数 |
+| `MAX_CONN_PER_IP` | `64` | 单 IP 允许的最大并发 TCP 连接数 |
+| `MAX_NEW_CONN_PER_USER_PER_MIN` | `600` | 每用户每分钟最大新建连接数（CPS 限速） |
+| `MAX_NEW_CONN_PER_IP_PER_MIN` | `300` | 单 IP 每分钟最大新建连接数（CPS 限速） |
+| `TRAFFIC_PENDING_MAX_USERS` | `10000` | 离线流量缓冲的最大用户条数，超限时按 UID 升序丢弃最旧条目 |
 
 ---
 
-## 部署与运维
+## 运维手册
 
-### 1. 使用一键脚本安装 (Systemd)
-
-对于需要启用最新优化版本的环境，推荐使用 `--source` 参数，脚本将自动配置 Go 环境并从 GitHub `main` 分支拉取源码在本地编译安装：
+### 常用命令
 
 ```bash
-# 源码编译安装示例（需根据实际情况替换 panel 与 token 占位符）
-curl -fsSL https://raw.githubusercontent.com/miliyao/singbox-bridge/main/install.sh | bash -s -- --node-id=5,6 --panel=https://panel.example.com --token=secret_token --google-ipv6 --source
-```
-
-### 2. 常用管理命令
-
-```bash
-# 查看服务状态及运行日志
+# 查看服务状态
 systemctl status singbox-bridge
+
+# 实时查看运行日志
+journalctl -u singbox-bridge -f
+
+# 查看最近 100 条日志
 journalctl -u singbox-bridge -n 100 --no-pager
 
-# 运行一键健康自检（支持多实例循环排查）
+# 重启服务（配置变更后）
+systemctl restart singbox-bridge
+```
+
+### 健康自检
+
+内置 `doctor` 子命令，可对当前运行环境进行系统级检查，包括：
+- TCP BBR 拥塞控制状态
+- 文件描述符软限制（`nofile`）
+- 面板连通性与 API 鉴权
+- 节点端口可绑定性
+
+```bash
 env $(cat /etc/singbox-bridge.env | xargs) /usr/local/bin/singbox-bridge doctor
 ```
 
 > [!NOTE]
-> 运行自检工具时，因后台常驻服务正在占用监听端口，导致 `listen_port` 检查项提示 `bind: address already in use` 属于正常状态。
+> 后台服务运行时执行 `doctor`，`listen_port` 检查项会提示 `bind: address already in use`，这是正常现象，不影响其他检查项的输出。
+
+---
+
+## 架构设计
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                      main / Node                        │
+│  （启动协调、Ticker 调度：sync / report / alive）        │
+└──────────┬──────────────────┬───────────────────────────┘
+           │                  │
+     ┌─────▼──────┐    ┌──────▼──────┐
+     │ UserSyncer │    │TrafficReport│
+     │ （配置同步） │    │ （流量上报） │
+     └─────┬──────┘    └──────┬──────┘
+           │                  │
+     ┌─────▼──────────────────▼──────┐
+     │         singbox.Engine        │
+     │  （内嵌 sing-box 内核实例）     │
+     └──────┬──────────────┬─────────┘
+            │              │
+     ┌──────▼──────┐  ┌────▼──────────┐
+     │   Limiter   │  │  StatsTracker │
+     │ （连接管控） │  │ （流量统计）   │
+     └─────────────┘  └───────────────┘
+```
+
+### 关键设计决策
+
+#### 无锁流量统计（`singbox/stats.go`）
+`AddTraffic` 是每个数据包都会触发的热路径。采用 `sync.Map`（`Load` / `LoadOrStore`）管理用户记录，`atomic.AddInt64` 原子累加流量，`atomic.SwapInt64` 原子采集清零，整个路径完全无 Mutex 争用。
+
+#### 双锁 Limiter（`core/limiter.go`）
+将全局大锁拆分为：
+- `configMu sync.RWMutex`：保护用户表、限速配置等静态配置（读多写少）
+- `stateMu sync.Mutex`：保护活跃连接、CPS 计数、设备在线状态等动态状态
+
+两锁同时获取时严格遵守 `configMu` → `stateMu` 的加锁顺序，避免死锁。
+
+#### 确定性配置哈希（`core/sync.go`）
+配置变更检测基于 SHA-256 流式哈希：
+- 标量字段：`binary.BigEndian` 定长写入，字符串字段之间插入 `\x00` 分隔符
+- 浮点数：写入 IEEE 754 位模式（`math.Float64bits`），全精度无格式歧义
+- 动态 JSON（`Routes`）：递归解析后按键名排序写入，数组保留顺序敏感性
+
+---
+
+## 测试
+
+```bash
+go test -v ./...
+```
+
+各子包均具备独立单元测试，所有测试不依赖真实 sing-box 内核或外部网络。
+
+---
+
+## 许可证
+
+[MIT License](LICENSE)

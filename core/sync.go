@@ -6,6 +6,8 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -260,11 +262,124 @@ func hashConfig(config *panel.NodeConfig) string {
 		return "nil"
 	}
 
-	data, err := json.Marshal(config)
-	if err != nil {
-		return "marshal-error"
+	h := sha256.New()
+
+	// 依次写入各个标量字段，确保确定性顺序，使用 \x00 分隔符防止字段边界混淆引发碰撞
+	_, _ = h.Write([]byte(config.Protocol))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(config.ListenIP))
+	_, _ = h.Write([]byte{0})
+
+	buf := make([]byte, 8)
+	binary.BigEndian.PutUint64(buf, uint64(config.ServerPort))
+	_, _ = h.Write(buf)
+
+	_, _ = h.Write([]byte(config.Network))
+	_, _ = h.Write([]byte{0})
+
+	binary.BigEndian.PutUint64(buf, uint64(config.TLS))
+	_, _ = h.Write(buf)
+
+	_, _ = h.Write([]byte(config.Flow))
+	_, _ = h.Write([]byte{0})
+
+	// TLSSettings
+	allowInsecureVal := uint64(0)
+	if config.TLSSettings.AllowInsecure {
+		allowInsecureVal = 1
+	}
+	binary.BigEndian.PutUint64(buf, allowInsecureVal)
+	_, _ = h.Write(buf)
+	_, _ = h.Write([]byte(config.TLSSettings.ServerPort))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(config.TLSSettings.ServerName))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(config.TLSSettings.PublicKey))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(config.TLSSettings.PrivateKey))
+	_, _ = h.Write([]byte{0})
+
+	// 确定性地对 shortIDs 进行排序再哈希
+	shortIDs := config.TLSSettings.ShortIDList()
+	if len(shortIDs) > 0 {
+		sortedShortIDs := make([]string, len(shortIDs))
+		copy(sortedShortIDs, shortIDs)
+		sort.Strings(sortedShortIDs)
+		for _, sid := range sortedShortIDs {
+			_, _ = h.Write([]byte(sid))
+		}
+	} else {
+		_, _ = h.Write([]byte(config.TLSSettings.ShortID))
 	}
 
-	hash := sha256.Sum256(data)
+	// BaseConfig
+	binary.BigEndian.PutUint64(buf, uint64(config.BaseConfig.PushInterval))
+	_, _ = h.Write(buf)
+	binary.BigEndian.PutUint64(buf, uint64(config.BaseConfig.PullInterval))
+	_, _ = h.Write(buf)
+
+	// Routes: 解析出 dynamic JSON 并进行排序哈希
+	if len(config.Routes) > 0 && string(config.Routes) != "null" {
+		var parsedRoutes any
+		if err := json.Unmarshal(config.Routes, &parsedRoutes); err == nil {
+			hashGenericValue(h, parsedRoutes)
+		} else {
+			_, _ = h.Write(config.Routes)
+		}
+	}
+
+	hash := h.Sum(nil)
 	return fmt.Sprintf("%x", hash[:8])
+}
+
+// hashGenericValue 递归地将任意 JSON 解构的数据以确定性的 Key 排序顺序写入哈希中
+func hashGenericValue(h io.Writer, val any) {
+	if val == nil {
+		_, _ = h.Write([]byte("null"))
+		return
+	}
+	switch v := val.(type) {
+	case bool:
+		if v {
+			_, _ = h.Write([]byte("true"))
+		} else {
+			_, _ = h.Write([]byte("false"))
+		}
+	case float64:
+		// 使用 IEEE 754 位模式写入，保证全精度且无字符串格式歧义
+		var fbuf [8]byte
+		binary.BigEndian.PutUint64(fbuf[:], math.Float64bits(v))
+		_, _ = h.Write(fbuf[:])
+	case int:
+		_, _ = h.Write([]byte(fmt.Sprintf("%d", v)))
+	case int64:
+		_, _ = h.Write([]byte(fmt.Sprintf("%d", v)))
+	case string:
+		_, _ = h.Write([]byte(v))
+		_, _ = h.Write([]byte{0})
+	case []any:
+		_, _ = h.Write([]byte("["))
+		for _, item := range v {
+			hashGenericValue(h, item)
+			_, _ = h.Write([]byte(","))
+		}
+		_, _ = h.Write([]byte("]"))
+	case map[string]any:
+		keys := make([]string, 0, len(v))
+		for k := range v {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		_, _ = h.Write([]byte("{"))
+		for _, k := range keys {
+			_, _ = h.Write([]byte(k))
+			_, _ = h.Write([]byte{0}) // key 边界分隔符
+			_, _ = h.Write([]byte(":"))
+			hashGenericValue(h, v[k])
+			_, _ = h.Write([]byte(","))
+		}
+		_, _ = h.Write([]byte("}"))
+	default:
+		_, _ = h.Write([]byte(fmt.Sprintf("%v", v)))
+	}
 }

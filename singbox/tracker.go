@@ -31,10 +31,11 @@ type LimitDecision struct {
 }
 
 type limiterTracker struct {
-	limiter ConnectionLimiter
-	stats   *StatsTracker
-	rates   UserRateProvider
-	logger  *zap.Logger
+	limiter      ConnectionLimiter
+	stats        *StatsTracker
+	rates        UserRateProvider
+	logger       *zap.Logger
+	connSequence uint64
 }
 
 type ConnectionLimiter interface {
@@ -52,7 +53,7 @@ func newLimiterTracker(limiter ConnectionLimiter, stats *StatsTracker, rates Use
 }
 
 func (t *limiterTracker) RoutedConnection(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) net.Conn {
-	meta := buildConnMeta(metadata)
+	meta := t.buildConnMeta(metadata)
 	if decision := t.limiter.Check(meta, meta.StartedAt); !decision.Allow {
 		if t.logger != nil {
 			t.logger.Warn("connection denied",
@@ -78,7 +79,7 @@ func (t *limiterTracker) RoutedConnection(ctx context.Context, conn net.Conn, me
 }
 
 func (t *limiterTracker) RoutedPacketConnection(ctx context.Context, conn N.PacketConn, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) N.PacketConn {
-	meta := buildConnMeta(metadata)
+	meta := t.buildConnMeta(metadata)
 	if decision := t.limiter.Check(meta, meta.StartedAt); !decision.Allow {
 		if t.logger != nil {
 			t.logger.Warn("packet connection denied",
@@ -123,10 +124,8 @@ func (t *limiterTracker) wrapSpeedLimit(userName string, conn net.Conn) net.Conn
 	}
 }
 
-var connSequence uint64
-
-func buildConnMeta(metadata adapter.InboundContext) ConnMeta {
-	seq := atomic.AddUint64(&connSequence, 1)
+func (t *limiterTracker) buildConnMeta(metadata adapter.InboundContext) ConnMeta {
+	seq := atomic.AddUint64(&t.connSequence, 1)
 	meta := ConnMeta{
 		ConnID:    strconv.FormatUint(seq, 36),
 		User:      metadata.User,

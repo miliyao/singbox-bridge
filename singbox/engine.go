@@ -82,7 +82,7 @@ func (e *Engine) Start(nodeConfig *panel.NodeConfig, users []panel.User, logLeve
 
 	e.mu.Lock()
 	e.instance = instance
-	e.users = cloneUsers(users)
+	e.users = panel.CloneUsers(users)
 	e.currentConfig = nodeConfig
 	e.logLevel = logLevel
 	e.mu.Unlock()
@@ -98,7 +98,7 @@ func (e *Engine) ReloadUsers(nodeConfig *panel.NodeConfig, newUsers []panel.User
 
 	e.mu.Lock()
 	oldInstance := e.instance
-	oldUsers := cloneUsers(e.users)
+	oldUsers := panel.CloneUsers(e.users)
 	oldConfig := e.currentConfig
 	oldLogLevel := e.logLevel
 	e.instance = nil
@@ -121,7 +121,7 @@ func (e *Engine) ReloadUsers(nodeConfig *panel.NodeConfig, newUsers []panel.User
 
 	e.mu.Lock()
 	e.instance = newInstance
-	e.users = cloneUsers(newUsers)
+	e.users = panel.CloneUsers(newUsers)
 	e.currentConfig = nodeConfig
 	e.logLevel = logLevel
 	e.mu.Unlock()
@@ -209,7 +209,7 @@ func (e *Engine) restorePreviousInstance(nodeConfig *panel.NodeConfig, users []p
 
 	e.mu.Lock()
 	e.instance = instance
-	e.users = cloneUsers(users)
+	e.users = panel.CloneUsers(users)
 	e.currentConfig = nodeConfig
 	e.logLevel = logLevel
 	e.mu.Unlock()
@@ -217,12 +217,3 @@ func (e *Engine) restorePreviousInstance(nodeConfig *panel.NodeConfig, users []p
 	return nil
 }
 
-func cloneUsers(users []panel.User) []panel.User {
-	if len(users) == 0 {
-		return nil
-	}
-
-	cloned := make([]panel.User, len(users))
-	copy(cloned, users)
-	return cloned
-}

@@ -27,19 +27,25 @@ type rateLimiter struct {
 }
 
 type Limiter struct {
-	mu sync.Mutex
+	// 锁序策略：在所有同时获取 configMu 和 stateMu 的场景下，
+	// 必须严格遵守先 configMu.Lock()/RLock() 后 stateMu.Lock() 的加锁顺序，以防死锁。
+	configMu sync.RWMutex
+	stateMu  sync.Mutex
 
+	// 以下字段由 configMu 保护，用于存储静态配置及限速桶
 	userByName        map[string]panel.User
+	speedLimitByName  map[string]int
+	speedBucketByName map[string]*ratelimit.Bucket
+
+	// 以下字段由 stateMu 独占保护，用于动态连接、CPS 速率以及对端存活计数的状态维护
 	oldUserOnline     map[string]map[string]struct{}
-	remoteUserOnline  map[int]map[string]struct{}
+	remoteUserOnline  map[int]map[string]struct{} // 由 stateMu 独占保护
 	activeConnByUser  map[string]map[string]singbox.ConnMeta
 	activeConnByIP    map[string]map[string]singbox.ConnMeta
 	activeIPsCount    map[string]map[string]int
-	recentConnByUser  map[string]*rateLimiter
-	recentConnByIP    map[string]*rateLimiter
+	recentConnByUser  map[string]*rateLimiter // CPS 记录，目前在 UpdateUsers 时进行定期扫描清理
+	recentConnByIP    map[string]*rateLimiter // 同上
 	aliveList         map[int]int
-	speedLimitByName  map[string]int
-	speedBucketByName map[string]*ratelimit.Bucket
 	window            time.Duration
 	maxConnPerUser    int
 	maxNewConnPerUser int
@@ -91,8 +97,10 @@ func NewLimiterWithConfig(cfg LimiterConfig) *Limiter {
 }
 
 func (l *Limiter) UpdateUsers(users []panel.User) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	l.configMu.Lock()
+	defer l.configMu.Unlock()
+	l.stateMu.Lock()
+	defer l.stateMu.Unlock()
 
 	// 清理过期的 IP/用户新建速率限制器，防止内存缓慢上涨
 	now := time.Now()
@@ -123,10 +131,9 @@ func (l *Limiter) UpdateUsers(users []panel.User) {
 	l.speedBucketByName = nextSpeedBuckets
 }
 
-
 func (l *Limiter) UpdateAliveList(alive panel.AliveList) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	l.stateMu.Lock()
+	defer l.stateMu.Unlock()
 
 	if len(alive) == 0 {
 		l.aliveList = make(map[int]int)
@@ -145,16 +152,25 @@ func (l *Limiter) UpdateAliveList(alive panel.AliveList) {
 }
 
 func (l *Limiter) UserSpeedBucket(userName string) *ratelimit.Bucket {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
 	name := strings.TrimSpace(userName)
+
+	l.configMu.RLock()
 	speedLimit := l.speedLimitByName[name]
+	bucket, ok := l.speedBucketByName[name]
+	l.configMu.RUnlock()
+
 	if speedLimit <= 0 {
 		return nil
 	}
+	if ok {
+		return bucket
+	}
 
-	if bucket, ok := l.speedBucketByName[name]; ok {
+	l.configMu.Lock()
+	defer l.configMu.Unlock()
+
+	// 双重检查校验，防止并发冲突
+	if bucket, ok = l.speedBucketByName[name]; ok {
 		return bucket
 	}
 
@@ -163,7 +179,7 @@ func (l *Limiter) UserSpeedBucket(userName string) *ratelimit.Bucket {
 		return nil
 	}
 
-	bucket := ratelimit.NewBucketWithRate(bytesPerSecond, int64(bytesPerSecond))
+	bucket = ratelimit.NewBucketWithRate(bytesPerSecond, int64(bytesPerSecond))
 	l.speedBucketByName[name] = bucket
 	return bucket
 }
@@ -190,15 +206,15 @@ func (l *Limiter) checkCPS(index map[string]*rateLimiter, key string, limit int,
 }
 
 func (l *Limiter) Check(meta singbox.ConnMeta, now time.Time) singbox.LimitDecision {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
 	userName := strings.TrimSpace(meta.User)
 	if userName == "" {
 		return singbox.LimitDecision{Allow: false, Reason: "missing user"}
 	}
 
+	l.configMu.RLock()
 	user, ok := l.userByName[userName]
+	l.configMu.RUnlock()
+
 	if !ok {
 		return singbox.LimitDecision{Allow: false, Reason: "unknown user"}
 	}
@@ -206,6 +222,9 @@ func (l *Limiter) Check(meta singbox.ConnMeta, now time.Time) singbox.LimitDecis
 	if meta.StartedAt.IsZero() {
 		meta.StartedAt = now
 	}
+
+	l.stateMu.Lock()
+	defer l.stateMu.Unlock()
 
 	if !l.checkCPS(l.recentConnByUser, userName, l.maxNewConnPerUser, now) {
 		return singbox.LimitDecision{Allow: false, Reason: "new connections per user limit exceeded"}
@@ -232,7 +251,7 @@ func (l *Limiter) Check(meta singbox.ConnMeta, now time.Time) singbox.LimitDecis
 		known := l.containsIP(currentIPs, ipKey) || l.containsIP(l.oldUserOnline[userName], ipKey)
 		known = known || l.containsIP(remoteIPs, ipKey)
 		if !known {
-			current := l.currentDeviceCount(userName, currentIPs)
+			current := l.currentDeviceCount(userName, user.ID, ok, currentIPs)
 			if current >= user.DeviceLimit {
 				return singbox.LimitDecision{Allow: false, Reason: "device limit exceeded"}
 			}
@@ -243,8 +262,8 @@ func (l *Limiter) Check(meta singbox.ConnMeta, now time.Time) singbox.LimitDecis
 }
 
 func (l *Limiter) Register(meta singbox.ConnMeta) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	l.stateMu.Lock()
+	defer l.stateMu.Unlock()
 
 	userName := strings.TrimSpace(meta.User)
 	if userName == "" {
@@ -265,8 +284,8 @@ func (l *Limiter) Register(meta singbox.ConnMeta) {
 }
 
 func (l *Limiter) Unregister(meta singbox.ConnMeta) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	l.stateMu.Lock()
+	defer l.stateMu.Unlock()
 
 	userName := strings.TrimSpace(meta.User)
 	if userName != "" {
@@ -302,8 +321,10 @@ func (l *Limiter) Unregister(meta singbox.ConnMeta) {
 }
 
 func (l *Limiter) BuildAlivePayload() map[int][]string {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	l.configMu.RLock()
+	defer l.configMu.RUnlock()
+	l.stateMu.Lock()
+	defer l.stateMu.Unlock()
 
 	currentOnline := l.currentOnlineDeviceSets()
 	payload := make(map[int][]string, len(currentOnline))
@@ -367,13 +388,13 @@ func (l *Limiter) currentOnlineDeviceSets() map[string]map[string]struct{} {
 	return current
 }
 
-func (l *Limiter) currentDeviceCount(userName string, currentIPs map[string]struct{}) int {
+func (l *Limiter) currentDeviceCount(userName string, userID int, userExists bool, currentIPs map[string]struct{}) int {
 	count := len(currentIPs)
-	if user, ok := l.userByName[userName]; ok {
-		if remote := len(l.remoteUserOnline[user.ID]); remote > count {
+	if userExists {
+		if remote := len(l.remoteUserOnline[userID]); remote > count {
 			count = remote
 		}
-		if alive := l.aliveList[user.ID]; alive > count {
+		if alive := l.aliveList[userID]; alive > count {
 			count = alive
 		}
 	}
@@ -398,7 +419,6 @@ func (l *Limiter) containsIP(ips map[string]struct{}, ip string) bool {
 	return ok
 }
 
-
 func stringSet(values []string) map[string]struct{} {
 	if len(values) == 0 {
 		return nil
@@ -414,10 +434,11 @@ func stringSet(values []string) map[string]struct{} {
 	return out
 }
 
-
 func (l *Limiter) Snapshot() LimiterSnapshot {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	l.configMu.RLock()
+	defer l.configMu.RUnlock()
+	l.stateMu.Lock()
+	defer l.stateMu.Unlock()
 
 	activeConnections := 0
 	for _, conns := range l.activeConnByUser {

@@ -491,7 +491,7 @@ func cloneStrings(values []string) []string {
 	return cloned
 }
 
-func cloneUsers(users []User) []User {
+func CloneUsers(users []User) []User {
 	if users == nil {
 		return nil
 	}

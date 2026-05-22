@@ -164,7 +164,7 @@ func (c *Client) GetNodeConfig() (*NodeConfig, error) {
 		return nil, fmt.Errorf("failed to fetch Xboard node config: %w", err)
 	}
 	if statusCode == http.StatusNotModified {
-		return cloneNodeConfig(c.config), nil
+		return c.config, nil
 	}
 
 	var config NodeConfig
@@ -175,8 +175,8 @@ func (c *Client) GetNodeConfig() (*NodeConfig, error) {
 	if c.configETag == "" {
 		c.configETag = headers.Get("ETag")
 	}
-	c.config = cloneNodeConfig(&config)
-	return cloneNodeConfig(c.config), nil
+	c.config = &config
+	return c.config, nil
 }
 
 func (c *Client) GetUsers() ([]User, error) {
@@ -185,7 +185,7 @@ func (c *Client) GetUsers() ([]User, error) {
 		return nil, fmt.Errorf("failed to fetch Xboard users: %w", err)
 	}
 	if statusCode == http.StatusNotModified {
-		return cloneUsers(c.users), nil
+		return c.users, nil
 	}
 
 	var resp struct {
@@ -203,8 +203,8 @@ func (c *Client) GetUsers() ([]User, error) {
 	if c.userETag == "" {
 		c.userETag = headers.Get("ETag")
 	}
-	c.users = cloneUsers(resp.Users)
-	return cloneUsers(resp.Users), nil
+	c.users = resp.Users
+	return c.users, nil
 }
 
 func (c *Client) GetUserAlive() (AliveList, error) {

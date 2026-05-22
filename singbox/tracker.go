@@ -5,11 +5,12 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/juju/ratelimit"
-	"github.com/gofrs/uuid/v5"
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing/common/buf"
 	"github.com/sagernet/sing/common/metadata"
@@ -122,9 +123,12 @@ func (t *limiterTracker) wrapSpeedLimit(userName string, conn net.Conn) net.Conn
 	}
 }
 
+var connSequence uint64
+
 func buildConnMeta(metadata adapter.InboundContext) ConnMeta {
+	seq := atomic.AddUint64(&connSequence, 1)
 	meta := ConnMeta{
-		ConnID:    uuid.Must(uuid.NewV4()).String(),
+		ConnID:    strconv.FormatUint(seq, 36),
 		User:      metadata.User,
 		StartedAt: time.Now(),
 	}
@@ -134,18 +138,28 @@ func buildConnMeta(metadata adapter.InboundContext) ConnMeta {
 	return meta
 }
 
+const trafficBufferThreshold = 1024 * 1024 // 1MB 阈值，限制提交到 StatsTracker 的锁竞争频率
+
 type trackedConn struct {
 	net.Conn
-	limiter   ConnectionLimiter
-	stats     *StatsTracker
-	meta      ConnMeta
-	closeOnce sync.Once
+	limiter     ConnectionLimiter
+	stats       *StatsTracker
+	meta        ConnMeta
+	closeOnce   sync.Once
+	uploadBuf   int64
+	downloadBuf int64
 }
 
 func (c *trackedConn) Read(b []byte) (n int, err error) {
 	n, err = c.Conn.Read(b)
 	if n > 0 && c.stats != nil {
-		c.stats.AddTraffic(c.meta.User, int64(n), 0)
+		val := atomic.AddInt64(&c.uploadBuf, int64(n))
+		if val >= trafficBufferThreshold {
+			toUpload := atomic.SwapInt64(&c.uploadBuf, 0)
+			if toUpload > 0 {
+				c.stats.AddTraffic(c.meta.User, toUpload, 0)
+			}
+		}
 	}
 	return
 }
@@ -153,7 +167,13 @@ func (c *trackedConn) Read(b []byte) (n int, err error) {
 func (c *trackedConn) Write(b []byte) (n int, err error) {
 	n, err = c.Conn.Write(b)
 	if n > 0 && c.stats != nil {
-		c.stats.AddTraffic(c.meta.User, 0, int64(n))
+		val := atomic.AddInt64(&c.downloadBuf, int64(n))
+		if val >= trafficBufferThreshold {
+			toDownload := atomic.SwapInt64(&c.downloadBuf, 0)
+			if toDownload > 0 {
+				c.stats.AddTraffic(c.meta.User, 0, toDownload)
+			}
+		}
 	}
 	return
 }
@@ -163,6 +183,12 @@ func (c *trackedConn) Close() error {
 		c.limiter.Unregister(c.meta)
 		if c.stats != nil {
 			c.stats.UnregisterConn(c.meta.User, c.meta.ConnID)
+			// 清算残留的流量缓冲
+			toUpload := atomic.SwapInt64(&c.uploadBuf, 0)
+			toDownload := atomic.SwapInt64(&c.downloadBuf, 0)
+			if toUpload > 0 || toDownload > 0 {
+				c.stats.AddTraffic(c.meta.User, toUpload, toDownload)
+			}
 		}
 	})
 	return c.Conn.Close()
@@ -170,16 +196,24 @@ func (c *trackedConn) Close() error {
 
 type trackedPacketConn struct {
 	N.PacketConn
-	limiter   ConnectionLimiter
-	stats     *StatsTracker
-	meta      ConnMeta
-	closeOnce sync.Once
+	limiter     ConnectionLimiter
+	stats       *StatsTracker
+	meta        ConnMeta
+	closeOnce   sync.Once
+	uploadBuf   int64
+	downloadBuf int64
 }
 
 func (c *trackedPacketConn) ReadPacket(buffer *buf.Buffer) (metadata.Socksaddr, error) {
 	addr, err := c.PacketConn.ReadPacket(buffer)
 	if err == nil && c.stats != nil {
-		c.stats.AddTraffic(c.meta.User, int64(buffer.Len()), 0)
+		val := atomic.AddInt64(&c.uploadBuf, int64(buffer.Len()))
+		if val >= trafficBufferThreshold {
+			toUpload := atomic.SwapInt64(&c.uploadBuf, 0)
+			if toUpload > 0 {
+				c.stats.AddTraffic(c.meta.User, toUpload, 0)
+			}
+		}
 	}
 	return addr, err
 }
@@ -187,7 +221,13 @@ func (c *trackedPacketConn) ReadPacket(buffer *buf.Buffer) (metadata.Socksaddr, 
 func (c *trackedPacketConn) WritePacket(buffer *buf.Buffer, destination metadata.Socksaddr) error {
 	err := c.PacketConn.WritePacket(buffer, destination)
 	if err == nil && c.stats != nil {
-		c.stats.AddTraffic(c.meta.User, 0, int64(buffer.Len()))
+		val := atomic.AddInt64(&c.downloadBuf, int64(buffer.Len()))
+		if val >= trafficBufferThreshold {
+			toDownload := atomic.SwapInt64(&c.downloadBuf, 0)
+			if toDownload > 0 {
+				c.stats.AddTraffic(c.meta.User, 0, toDownload)
+			}
+		}
 	}
 	return err
 }
@@ -197,6 +237,12 @@ func (c *trackedPacketConn) Close() error {
 		c.limiter.Unregister(c.meta)
 		if c.stats != nil {
 			c.stats.UnregisterConn(c.meta.User, c.meta.ConnID)
+			// 清算残留的流量缓冲
+			toUpload := atomic.SwapInt64(&c.uploadBuf, 0)
+			toDownload := atomic.SwapInt64(&c.downloadBuf, 0)
+			if toUpload > 0 || toDownload > 0 {
+				c.stats.AddTraffic(c.meta.User, toUpload, toDownload)
+			}
 		}
 	})
 	return c.PacketConn.Close()

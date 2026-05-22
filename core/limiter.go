@@ -21,6 +21,11 @@ type LimiterConfig struct {
 	MaxNewConnPerIPPerMin   int
 }
 
+type rateLimiter struct {
+	lastReset time.Time
+	count     int
+}
+
 type Limiter struct {
 	mu sync.Mutex
 
@@ -29,8 +34,9 @@ type Limiter struct {
 	remoteUserOnline  map[int]map[string]struct{}
 	activeConnByUser  map[string]map[string]singbox.ConnMeta
 	activeConnByIP    map[string]map[string]singbox.ConnMeta
-	recentConnByUser  map[string][]time.Time
-	recentConnByIP    map[string][]time.Time
+	activeIPsCount    map[string]map[string]int
+	recentConnByUser  map[string]*rateLimiter
+	recentConnByIP    map[string]*rateLimiter
 	aliveList         map[int]int
 	speedLimitByName  map[string]int
 	speedBucketByName map[string]*ratelimit.Bucket
@@ -70,8 +76,9 @@ func NewLimiterWithConfig(cfg LimiterConfig) *Limiter {
 		remoteUserOnline:  make(map[int]map[string]struct{}),
 		activeConnByUser:  make(map[string]map[string]singbox.ConnMeta),
 		activeConnByIP:    make(map[string]map[string]singbox.ConnMeta),
-		recentConnByUser:  make(map[string][]time.Time),
-		recentConnByIP:    make(map[string][]time.Time),
+		activeIPsCount:    make(map[string]map[string]int),
+		recentConnByUser:  make(map[string]*rateLimiter),
+		recentConnByIP:    make(map[string]*rateLimiter),
 		aliveList:         make(map[int]int),
 		speedLimitByName:  make(map[string]int),
 		speedBucketByName: make(map[string]*ratelimit.Bucket),
@@ -86,6 +93,19 @@ func NewLimiterWithConfig(cfg LimiterConfig) *Limiter {
 func (l *Limiter) UpdateUsers(users []panel.User) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+
+	// 清理过期的 IP/用户新建速率限制器，防止内存缓慢上涨
+	now := time.Now()
+	for ip, rl := range l.recentConnByIP {
+		if now.Sub(rl.lastReset) > l.window*2 {
+			delete(l.recentConnByIP, ip)
+		}
+	}
+	for name, rl := range l.recentConnByUser {
+		if now.Sub(rl.lastReset) > l.window*2 {
+			delete(l.recentConnByUser, name)
+		}
+	}
 
 	next := make(map[string]panel.User, len(users))
 	nextSpeedLimit := make(map[string]int, len(users))
@@ -148,6 +168,27 @@ func (l *Limiter) UserSpeedBucket(userName string) *ratelimit.Bucket {
 	return bucket
 }
 
+func (l *Limiter) checkCPS(index map[string]*rateLimiter, key string, limit int, now time.Time) bool {
+	rl, ok := index[key]
+	if !ok {
+		index[key] = &rateLimiter{
+			lastReset: now,
+			count:     1,
+		}
+		return true
+	}
+	if now.Sub(rl.lastReset) >= l.window {
+		rl.lastReset = now
+		rl.count = 1
+		return true
+	}
+	if rl.count >= limit {
+		return false
+	}
+	rl.count++
+	return true
+}
+
 func (l *Limiter) Check(meta singbox.ConnMeta, now time.Time) singbox.LimitDecision {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -166,16 +207,14 @@ func (l *Limiter) Check(meta singbox.ConnMeta, now time.Time) singbox.LimitDecis
 		meta.StartedAt = now
 	}
 
-	l.recentConnByUser[userName] = append(l.trimEvents(l.recentConnByUser[userName], now), meta.StartedAt)
-	if len(l.recentConnByUser[userName]) > l.maxNewConnPerUser {
+	if !l.checkCPS(l.recentConnByUser, userName, l.maxNewConnPerUser, now) {
 		return singbox.LimitDecision{Allow: false, Reason: "new connections per user limit exceeded"}
 	}
 
 	ipKey := ""
 	if meta.SourceIP.IsValid() {
 		ipKey = meta.SourceIP.String()
-		l.recentConnByIP[ipKey] = append(l.trimEvents(l.recentConnByIP[ipKey], now), meta.StartedAt)
-		if len(l.recentConnByIP[ipKey]) > l.maxNewConnPerIP {
+		if !l.checkCPS(l.recentConnByIP, ipKey, l.maxNewConnPerIP, now) {
 			return singbox.LimitDecision{Allow: false, Reason: "new connections per ip limit exceeded"}
 		}
 	}
@@ -216,6 +255,12 @@ func (l *Limiter) Register(meta singbox.ConnMeta) {
 	if meta.SourceIP.IsValid() {
 		ipKey := meta.SourceIP.String()
 		l.ensureConnMap(l.activeConnByIP, ipKey)[meta.ConnID] = meta
+
+		// 维护 IP 引用计数
+		if l.activeIPsCount[userName] == nil {
+			l.activeIPsCount[userName] = make(map[string]int)
+		}
+		l.activeIPsCount[userName][ipKey]++
 	}
 }
 
@@ -238,6 +283,19 @@ func (l *Limiter) Unregister(meta singbox.ConnMeta) {
 			delete(conns, meta.ConnID)
 			if len(conns) == 0 {
 				delete(l.activeConnByIP, ipKey)
+			}
+		}
+
+		// 维护 IP 引用计数
+		if userName != "" {
+			if counts, ok := l.activeIPsCount[userName]; ok {
+				counts[ipKey]--
+				if counts[ipKey] <= 0 {
+					delete(counts, ipKey)
+				}
+				if len(counts) == 0 {
+					delete(l.activeIPsCount, userName)
+				}
 			}
 		}
 	}
@@ -275,26 +333,6 @@ func limiterUserName(userID int) string {
 	return "user-" + strconv.Itoa(userID)
 }
 
-func (l *Limiter) trimEvents(events []time.Time, now time.Time) []time.Time {
-	if len(events) == 0 {
-		return nil
-	}
-	cutoff := now.Add(-l.window)
-	firstValid := 0
-	for firstValid < len(events) && events[firstValid].Before(cutoff) {
-		firstValid++
-	}
-	if firstValid == 0 {
-		return events
-	}
-	if firstValid >= len(events) {
-		return nil
-	}
-	trimmed := make([]time.Time, len(events)-firstValid)
-	copy(trimmed, events[firstValid:])
-	return trimmed
-}
-
 func (l *Limiter) ensureConnMap(index map[string]map[string]singbox.ConnMeta, key string) map[string]singbox.ConnMeta {
 	conns := index[key]
 	if conns == nil {
@@ -305,20 +343,14 @@ func (l *Limiter) ensureConnMap(index map[string]map[string]singbox.ConnMeta, ke
 }
 
 func (l *Limiter) currentUserIPs(userName string) map[string]struct{} {
-	userConns := l.activeConnByUser[userName]
-	if len(userConns) == 0 {
+	counts := l.activeIPsCount[userName]
+	if len(counts) == 0 {
 		return nil
 	}
 
-	ips := make(map[string]struct{}, len(userConns))
-	for _, meta := range userConns {
-		if !meta.SourceIP.IsValid() {
-			continue
-		}
-		ips[meta.SourceIP.String()] = struct{}{}
-	}
-	if len(ips) == 0 {
-		return nil
+	ips := make(map[string]struct{}, len(counts))
+	for ip := range counts {
+		ips[ip] = struct{}{}
 	}
 	return ips
 }

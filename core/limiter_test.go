@@ -285,10 +285,10 @@ func TestLimiterCheckTrimsExpiredConnectionEvents(t *testing.T) {
 		t.Fatalf("expected second connection to be allowed after window expiry, got %#v", got)
 	}
 
-	if got := len(limiter.recentConnByUser["user-1"]); got != 1 {
-		t.Fatalf("expected 1 recent user event after trimming, got %d", got)
+	if got := limiter.recentConnByUser["user-1"].count; got != 1 {
+		t.Fatalf("expected 1 recent user event count after trimming, got %d", got)
 	}
-	if got := len(limiter.recentConnByIP["1.1.1.1"]); got != 1 {
-		t.Fatalf("expected 1 recent ip event after trimming, got %d", got)
+	if got := limiter.recentConnByIP["1.1.1.1"].count; got != 1 {
+		t.Fatalf("expected 1 recent ip event count after trimming, got %d", got)
 	}
 }

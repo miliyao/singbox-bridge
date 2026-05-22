@@ -3,10 +3,10 @@ package core
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -218,19 +218,40 @@ type SyncSnapshot struct {
 }
 
 func hashUsers(users []panel.User) string {
-	identities := make([]string, len(users))
-	for i, user := range users {
-		identities[i] = fmt.Sprintf("%d:%s:%d", user.ID, user.UUID, user.SpeedLimit)
-	}
-	sort.Strings(identities)
-
-	var builder strings.Builder
-	for _, identity := range identities {
-		builder.WriteString(identity)
-		builder.WriteByte('|')
+	if len(users) == 0 {
+		return "empty"
 	}
 
-	hash := sha256.Sum256([]byte(builder.String()))
+	// 浅拷贝 users 的底层元素（只复制结构体，不复制深层数据），用于在排序时不干扰原有切片
+	sortedUsers := make([]panel.User, len(users))
+	copy(sortedUsers, users)
+
+	// 按用户 ID 进行数字排序，确保哈希结果的确定性
+	sort.Slice(sortedUsers, func(i, j int) bool {
+		return sortedUsers[i].ID < sortedUsers[j].ID
+	})
+
+	// 流式哈希写入，杜绝字符串拼接和大对象强制转换带来的堆分配与 GC 开销
+	h := sha256.New()
+	buf := make([]byte, 8)
+
+	for _, user := range sortedUsers {
+		// 写入用户 ID
+		binary.BigEndian.PutUint64(buf, uint64(user.ID))
+		_, _ = h.Write(buf)
+
+		// 写入限速值
+		binary.BigEndian.PutUint64(buf, uint64(user.SpeedLimit))
+		_, _ = h.Write(buf)
+
+		// 写入 UUID 字节流
+		_, _ = h.Write([]byte(user.UUID))
+
+		// 写入分隔符以确保哈希值跟原有分隔保持逻辑的一致性
+		_, _ = h.Write([]byte("|"))
+	}
+
+	hash := h.Sum(nil)
 	return fmt.Sprintf("%x", hash[:8])
 }
 

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"syscall"
@@ -22,6 +23,11 @@ import (
 const shutdownTimeout = 30 * time.Second
 
 func main() {
+	// 在 1c1g VPS 环境下，若未配置 GOMEMLIMIT 环境变量，则设置 750MiB 软内存上限以积极触发 GC，防止发生 OOM-Killer 强杀
+	if os.Getenv("GOMEMLIMIT") == "" {
+		debug.SetMemoryLimit(750 * 1024 * 1024)
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "加载配置失败: %v\n", err)
@@ -36,6 +42,9 @@ func main() {
 	defer func() {
 		_ = logger.Sync()
 	}()
+
+	// 在程序启动时，执行 Linux 系统调优指标检测 (BBR 拥塞控制及 nofile 描述符限制)
+	checkSystemSettings(logger)
 
 	if len(os.Args) > 1 && os.Args[1] == "doctor" {
 		doctorCtx, doctorCancel := context.WithTimeout(context.Background(), 60*time.Second)

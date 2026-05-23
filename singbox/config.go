@@ -336,6 +336,10 @@ func dnsRuleRejectDomain(keywords []string) option.DNSRule {
 			},
 			DNSRuleAction: option.DNSRuleAction{
 				Action: C.RuleActionTypeReject,
+				// sing-box v1.13+ 要求显式指定 Method，否则路由时会 panic
+				RejectOptions: option.RejectActionOptions{
+					Method: "default",
+				},
 			},
 		},
 	}
@@ -348,6 +352,10 @@ func rejectRule(raw option.RawDefaultRule) option.Rule {
 			RawDefaultRule: raw,
 			RuleAction: option.RuleAction{
 				Action: C.RuleActionTypeReject,
+				// sing-box v1.13+ 要求显式指定 Method，否则路由时会 panic
+				RejectOptions: option.RejectActionOptions{
+					Method: "default",
+				},
 			},
 		},
 	}
@@ -430,7 +438,12 @@ func convertLegacyRouteRules(rules []legacyRouteRule) *option.RouteOptions {
 					Protocol: toList(item.Protocol),
 					Domain:   toList(item.Domain),
 				},
-				RuleAction: option.RuleAction{Action: C.RuleActionTypeReject},
+				RuleAction: option.RuleAction{
+					Action: C.RuleActionTypeReject,
+					RejectOptions: option.RejectActionOptions{
+						Method: "default",
+					},
+				},
 			}
 		default:
 			continue

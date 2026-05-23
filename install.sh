@@ -254,7 +254,16 @@ configure_firewall() {
 enable_bbr() {
     log_info "Applying BBR tuning..."
 
-    if ! sysctl -n net.ipv4.tcp_available_congestion_control 2>/dev/null | grep -q bbr; then
+    # 尝试加载 BBR 内核模块
+    modprobe tcp_bbr 2>/dev/null || true
+
+    # 检查 BBR 是否可用或已启用
+    local available_cc=""
+    available_cc=$(sysctl -n net.ipv4.tcp_available_congestion_control 2>/dev/null || true)
+    local current_cc=""
+    current_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || true)
+
+    if ! echo "$available_cc" | grep -q bbr && [ "$current_cc" != "bbr" ]; then
         log_warn "BBR support not detected, skipping."
         return
     fi

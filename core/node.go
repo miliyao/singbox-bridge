@@ -47,7 +47,6 @@ func NewNode(cfg *config.Config, logger *zap.Logger) *Node {
 
 func (n *Node) Start(ctx context.Context) error {
 	n.logger.Info("starting xboard node",
-		zap.Int("node_id", n.cfg.NodeID),
 		zap.String("panel", n.cfg.PanelHost),
 	)
 

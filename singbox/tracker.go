@@ -177,6 +177,14 @@ func (c *trackedConn) Write(b []byte) (n int, err error) {
 	return
 }
 
+func (c *trackedConn) Upstream() any {
+	return c.Conn
+}
+
+func (c *trackedConn) Unwrap() any {
+	return c.Conn
+}
+
 func (c *trackedConn) Close() error {
 	c.closeOnce.Do(func() {
 		c.limiter.Unregister(c.meta)
@@ -201,6 +209,28 @@ type trackedPacketConn struct {
 	closeOnce   sync.Once
 	uploadBuf   int64
 	downloadBuf int64
+}
+
+func (c *trackedPacketConn) Upstream() any {
+	return c.PacketConn
+}
+
+func (c *trackedPacketConn) Unwrap() any {
+	return c.PacketConn
+}
+
+func (c *trackedPacketConn) FrontHeadroom() int {
+	if f, ok := c.PacketConn.(interface{ FrontHeadroom() int }); ok {
+		return f.FrontHeadroom()
+	}
+	return 0
+}
+
+func (c *trackedPacketConn) RearHeadroom() int {
+	if f, ok := c.PacketConn.(interface{ RearHeadroom() int }); ok {
+		return f.RearHeadroom()
+	}
+	return 0
 }
 
 func (c *trackedPacketConn) ReadPacket(buffer *buf.Buffer) (metadata.Socksaddr, error) {

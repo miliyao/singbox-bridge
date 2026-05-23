@@ -83,9 +83,9 @@ func TestLoadRejectsInvalidOptionalValues(t *testing.T) {
 		{name: "invalid sync interval", key: "SYNC_INTERVAL", value: "0"},
 		{name: "invalid report interval", key: "REPORT_INTERVAL", value: "abc"},
 		{name: "invalid log level", key: "LOG_LEVEL", value: "trace"},
-		{name: "invalid max conn per user", key: "MAX_CONN_PER_USER", value: "abc"},
+		{name: "invalid max conn per user", key: "MAX_CONN_PER_USER", value: "0"},
 		{name: "invalid max conn per ip", key: "MAX_CONN_PER_IP", value: "def"},
-		{name: "invalid max user conn rate", key: "MAX_NEW_CONN_PER_USER_PER_MIN", value: "abc"},
+		{name: "invalid max user conn rate", key: "MAX_NEW_CONN_PER_USER_PER_MIN", value: "0"},
 		{name: "invalid max pending traffic", key: "TRAFFIC_PENDING_MAX_USERS", value: "0"},
 	}
 

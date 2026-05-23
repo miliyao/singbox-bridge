@@ -102,7 +102,7 @@ func Load() (*Config, error) {
 	clashAPIListenAddr := loadOptionalStringEnv("CLASH_API_LISTEN_ADDR", defaultClashAPIListen)
 	trafficStateFile := loadOptionalStringEnv("TRAFFIC_STATE_FILE", defaultTrafficStateFile())
 
-	maxConnPerUser, err := loadOptionalIntEnvValue("MAX_CONN_PER_USER", defaultMaxConnPerUser)
+	maxConnPerUser, err := loadOptionalPositiveIntEnvValue("MAX_CONN_PER_USER", defaultMaxConnPerUser)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +110,7 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	maxNewConnPerUser, err := loadOptionalIntEnvValue("MAX_NEW_CONN_PER_USER_PER_MIN", defaultMaxNewConnPerUserPerMin)
+	maxNewConnPerUser, err := loadOptionalPositiveIntEnvValue("MAX_NEW_CONN_PER_USER_PER_MIN", defaultMaxNewConnPerUserPerMin)
 	if err != nil {
 		return nil, err
 	}

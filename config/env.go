@@ -16,9 +16,9 @@ const (
 	defaultClashAPIListen = ""
 
 	defaultMaxConnPerUser          = 128
-	defaultMaxConnPerIP            = 64
+	defaultMaxConnPerIP            = 0
 	defaultMaxNewConnPerUserPerMin = 600
-	defaultMaxNewConnPerIPPerMin   = 300
+	defaultMaxNewConnPerIPPerMin   = 0
 	defaultTrafficPendingMaxUsers  = 10000
 )
 
@@ -102,19 +102,19 @@ func Load() (*Config, error) {
 	clashAPIListenAddr := loadOptionalStringEnv("CLASH_API_LISTEN_ADDR", defaultClashAPIListen)
 	trafficStateFile := loadOptionalStringEnv("TRAFFIC_STATE_FILE", defaultTrafficStateFile())
 
-	maxConnPerUser, err := loadOptionalPositiveIntEnvValue("MAX_CONN_PER_USER", defaultMaxConnPerUser)
+	maxConnPerUser, err := loadOptionalIntEnvValue("MAX_CONN_PER_USER", defaultMaxConnPerUser)
 	if err != nil {
 		return nil, err
 	}
-	maxConnPerIP, err := loadOptionalPositiveIntEnvValue("MAX_CONN_PER_IP", defaultMaxConnPerIP)
+	maxConnPerIP, err := loadOptionalIntEnvValue("MAX_CONN_PER_IP", defaultMaxConnPerIP)
 	if err != nil {
 		return nil, err
 	}
-	maxNewConnPerUser, err := loadOptionalPositiveIntEnvValue("MAX_NEW_CONN_PER_USER_PER_MIN", defaultMaxNewConnPerUserPerMin)
+	maxNewConnPerUser, err := loadOptionalIntEnvValue("MAX_NEW_CONN_PER_USER_PER_MIN", defaultMaxNewConnPerUserPerMin)
 	if err != nil {
 		return nil, err
 	}
-	maxNewConnPerIP, err := loadOptionalPositiveIntEnvValue("MAX_NEW_CONN_PER_IP_PER_MIN", defaultMaxNewConnPerIPPerMin)
+	maxNewConnPerIP, err := loadOptionalIntEnvValue("MAX_NEW_CONN_PER_IP_PER_MIN", defaultMaxNewConnPerIPPerMin)
 	if err != nil {
 		return nil, err
 	}
@@ -189,6 +189,19 @@ func loadOptionalPositiveIntEnv(key string, defaultVal int) (int, bool, error) {
 func loadOptionalPositiveIntEnvValue(key string, defaultVal int) (int, error) {
 	value, _, err := loadOptionalPositiveIntEnv(key, defaultVal)
 	return value, err
+}
+
+func loadOptionalIntEnvValue(key string, defaultVal int) (int, error) {
+	raw, ok := lookupTrimmedEnv(key)
+	if !ok {
+		return defaultVal, nil
+	}
+
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be an integer: %w", key, err)
+	}
+	return value, nil
 }
 
 func loadOptionalPortEnv(key string, defaultVal int) (int, error) {

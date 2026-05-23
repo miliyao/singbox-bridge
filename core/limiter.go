@@ -63,19 +63,6 @@ func NewLimiter() *Limiter {
 }
 
 func NewLimiterWithConfig(cfg LimiterConfig) *Limiter {
-	if cfg.MaxConnPerUser <= 0 {
-		cfg.MaxConnPerUser = 32
-	}
-	if cfg.MaxConnPerIP <= 0 {
-		cfg.MaxConnPerIP = 20
-	}
-	if cfg.MaxNewConnPerUserPerMin <= 0 {
-		cfg.MaxNewConnPerUserPerMin = 120
-	}
-	if cfg.MaxNewConnPerIPPerMin <= 0 {
-		cfg.MaxNewConnPerIPPerMin = 60
-	}
-
 	return &Limiter{
 		userByName:        make(map[string]panel.User),
 		oldUserOnline:     make(map[string]map[string]struct{}),
@@ -226,22 +213,26 @@ func (l *Limiter) Check(meta singbox.ConnMeta, now time.Time) singbox.LimitDecis
 	l.stateMu.Lock()
 	defer l.stateMu.Unlock()
 
-	if !l.checkCPS(l.recentConnByUser, userName, l.maxNewConnPerUser, now) {
-		return singbox.LimitDecision{Allow: false, Reason: "new connections per user limit exceeded"}
+	if l.maxNewConnPerUser > 0 {
+		if !l.checkCPS(l.recentConnByUser, userName, l.maxNewConnPerUser, now) {
+			return singbox.LimitDecision{Allow: false, Reason: "new connections per user limit exceeded"}
+		}
 	}
 
 	ipKey := ""
 	if meta.SourceIP.IsValid() {
 		ipKey = meta.SourceIP.String()
-		if !l.checkCPS(l.recentConnByIP, ipKey, l.maxNewConnPerIP, now) {
-			return singbox.LimitDecision{Allow: false, Reason: "new connections per ip limit exceeded"}
+		if l.maxNewConnPerIP > 0 {
+			if !l.checkCPS(l.recentConnByIP, ipKey, l.maxNewConnPerIP, now) {
+				return singbox.LimitDecision{Allow: false, Reason: "new connections per ip limit exceeded"}
+			}
 		}
 	}
 
-	if len(l.ensureConnMap(l.activeConnByUser, userName)) >= l.maxConnPerUser {
+	if l.maxConnPerUser > 0 && len(l.ensureConnMap(l.activeConnByUser, userName)) >= l.maxConnPerUser {
 		return singbox.LimitDecision{Allow: false, Reason: "active connections per user limit exceeded"}
 	}
-	if ipKey != "" && len(l.ensureConnMap(l.activeConnByIP, ipKey)) >= l.maxConnPerIP {
+	if ipKey != "" && l.maxConnPerIP > 0 && len(l.ensureConnMap(l.activeConnByIP, ipKey)) >= l.maxConnPerIP {
 		return singbox.LimitDecision{Allow: false, Reason: "active connections per ip limit exceeded"}
 	}
 

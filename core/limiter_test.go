@@ -292,3 +292,28 @@ func TestLimiterCheckTrimsExpiredConnectionEvents(t *testing.T) {
 		t.Fatalf("expected 1 recent ip event count after trimming, got %d", got)
 	}
 }
+
+func TestLimiterAllowsUnlimitedIPConnectionsWhenDisabled(t *testing.T) {
+	limiter := NewLimiterWithConfig(LimiterConfig{
+		MaxConnPerUser:          100,
+		MaxConnPerIP:            0,
+		MaxNewConnPerUserPerMin: 100,
+		MaxNewConnPerIPPerMin:   0,
+	})
+	limiter.UpdateUsers([]panel.User{{ID: 1, UUID: "uuid-a"}})
+
+	now := time.Now()
+	// 注册来自同一个 IP 的 10 个连接。因为 MaxConnPerIP 被设为 0，不应该触发任何 IP 维度的拦截。
+	for i := 0; i < 10; i++ {
+		meta := singbox.ConnMeta{
+			ConnID:   "conn-" + string(rune('a'+i)),
+			User:     "user-1",
+			SourceIP: netip.MustParseAddr("1.1.1.1"),
+		}
+		got := limiter.Check(meta, now)
+		if !got.Allow {
+			t.Fatalf("expected connection %d to be allowed with disabled IP limits, got %#v", i, got)
+		}
+		limiter.Register(meta)
+	}
+}

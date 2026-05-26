@@ -53,8 +53,8 @@ func TestBuildConfigUsesDefaultsAndPrependsSafetyRules(t *testing.T) {
 		t.Fatal("expected sniff to be enabled")
 	}
 
-	if opts.Route == nil || len(opts.Route.Rules) != 6 {
-		t.Fatalf("expected 6 route rules, got %#v", opts.Route)
+	if opts.Route == nil || len(opts.Route.Rules) != 5 {
+		t.Fatalf("expected 5 route rules, got %#v", opts.Route)
 	}
 	if !opts.Route.AutoDetectInterface {
 		t.Fatal("expected auto_detect_interface to be enabled")
@@ -71,18 +71,15 @@ func TestBuildConfigUsesDefaultsAndPrependsSafetyRules(t *testing.T) {
 	if !opts.Route.Rules[1].DefaultOptions.IPIsPrivate {
 		t.Fatalf("expected second route to direct private IPs, got %#v", opts.Route.Rules[1])
 	}
-	// 验证新增的高危端口和国内流量拦截
+	// 验证新增的高危端口拦截
 	if opts.Route.Rules[2].DefaultOptions.Port[0] != 25 || opts.Route.Rules[2].DefaultOptions.RuleAction.Action != C.RuleActionTypeReject {
 		t.Fatalf("expected third route to reject SMTP port 25, got %#v", opts.Route.Rules[2])
 	}
 	if opts.Route.Rules[3].DefaultOptions.Port[0] != 445 || opts.Route.Rules[3].DefaultOptions.PortRange[0] != "135:139" || opts.Route.Rules[3].DefaultOptions.RuleAction.Action != C.RuleActionTypeReject {
 		t.Fatalf("expected fourth route to reject high-risk ports, got %#v", opts.Route.Rules[3])
 	}
-	if opts.Route.Rules[4].DefaultOptions.RuleSet[0] != "geoip-cn" || opts.Route.Rules[4].DefaultOptions.RuleAction.Action != C.RuleActionTypeReject {
-		t.Fatalf("expected fifth route to reject RuleSet geoip-cn, got %#v", opts.Route.Rules[4])
-	}
-	if len(opts.Route.RuleSet) != 2 || opts.Route.RuleSet[0].Tag != "geoip-cn" {
-		t.Fatalf("expected 2 rule sets with geoip-cn, got %#v", opts.Route.RuleSet)
+	if len(opts.Route.RuleSet) != 0 {
+		t.Fatalf("expected 0 rule sets, got %#v", opts.Route.RuleSet)
 	}
 	if opts.DNS == nil || len(opts.DNS.Rules) != 1 {
 		t.Fatalf("expected 1 dns reject rule, got %#v", opts.DNS)
@@ -164,7 +161,7 @@ func TestBuildConfigAcceptsRouteObject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildConfig returned error: %v", err)
 	}
-	if opts.Route == nil || opts.Route.Final != "direct" || len(opts.Route.Rules) != 6 {
+	if opts.Route == nil || opts.Route.Final != "direct" || len(opts.Route.Rules) != 5 {
 		t.Fatalf("unexpected route options: %#v", opts.Route)
 	}
 }
@@ -205,7 +202,7 @@ func TestBuildConfigConvertsLegacyRouteRules(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildConfig returned error: %v", err)
 	}
-	if opts.Route == nil || len(opts.Route.Rules) != 7 {
+	if opts.Route == nil || len(opts.Route.Rules) != 6 {
 		t.Fatalf("unexpected legacy route conversion: %#v", opts.Route)
 	}
 	if opts.Route.Final != "direct" {

@@ -154,22 +154,6 @@ func requireEnv(key string) (string, error) {
 	return val, nil
 }
 
-func requirePositiveIntEnv(key string) (int, error) {
-	raw, err := requireEnv(key)
-	if err != nil {
-		return 0, err
-	}
-
-	value, err := strconv.Atoi(raw)
-	if err != nil {
-		return 0, fmt.Errorf("%s must be an integer: %w", key, err)
-	}
-	if value <= 0 {
-		return 0, fmt.Errorf("%s must be greater than 0", key)
-	}
-	return value, nil
-}
-
 func loadOptionalPositiveIntEnv(key string, defaultVal int) (int, bool, error) {
 	raw, ok := lookupTrimmedEnv(key)
 	if !ok {
@@ -202,22 +186,6 @@ func loadOptionalIntEnvValue(key string, defaultVal int) (int, error) {
 		return 0, fmt.Errorf("%s must be an integer: %w", key, err)
 	}
 	return value, nil
-}
-
-func loadOptionalPortEnv(key string, defaultVal int) (int, error) {
-	raw, ok := lookupTrimmedEnv(key)
-	if !ok {
-		return defaultVal, nil
-	}
-
-	port, err := strconv.Atoi(raw)
-	if err != nil {
-		return 0, fmt.Errorf("%s must be an integer: %w", key, err)
-	}
-	if port < 1 || port > 65535 {
-		return 0, fmt.Errorf("%s must be between 1 and 65535", key)
-	}
-	return port, nil
 }
 
 func loadOptionalLogLevelEnv(key, defaultVal string) (string, error) {
